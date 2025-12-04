@@ -15,6 +15,9 @@ Norte Asset Management Quant Finance Master Guide:
 10. Maximum Diversification Portfolio
 11. Equal Risk Contribution
 12. Kelly Criterion
+
+Note: Basic portfolio and statistical calculations use metrics.core
+for consistency across all modules.
 """
 
 from dataclasses import dataclass
@@ -24,6 +27,8 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy import stats
 from scipy.optimize import minimize
+
+from fmp_analytics.metrics import core
 
 
 @dataclass
@@ -695,19 +700,8 @@ class PortfolioManagement:
 
     # ==================== EDHEC COVARIANCE ESTIMATION ====================
 
-    @staticmethod
-    def sample_covariance(
-        returns: NDArray[np.float64],
-    ) -> NDArray[np.float64]:
-        """Calculate sample covariance matrix.
-
-        Args:
-            returns: T x N array of returns (T periods, N assets).
-
-        Returns:
-            N x N sample covariance matrix.
-        """
-        return np.cov(returns, rowvar=False)
+    # Delegate to core for basic covariance calculation
+    sample_covariance = staticmethod(core.covariance_matrix)
 
     @staticmethod
     def constant_correlation_covariance(

@@ -6,6 +6,9 @@ This module implements financial metrics and calculations based on the CFA curri
 - Equity Valuation (DCF, DDM, Residual Income, Multiples)
 - Corporate Finance (WACC, EVA, FCF)
 - Quantitative Methods (Statistics, Time Value of Money)
+
+Note: Basic portfolio and statistical calculations delegate to metrics.core
+for consistency across all modules.
 """
 
 from dataclasses import dataclass
@@ -15,6 +18,8 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy import stats
 from scipy.optimize import newton
+
+from fmp_analytics.metrics import core
 
 
 @dataclass
@@ -160,72 +165,11 @@ class CFAMetrics:
 
     # ==================== PORTFOLIO MANAGEMENT ====================
 
-    @staticmethod
-    def portfolio_return(
-        weights: NDArray[np.float64],
-        returns: NDArray[np.float64],
-    ) -> float:
-        """Calculate portfolio expected return.
-
-        Args:
-            weights: Asset weights.
-            returns: Expected returns for each asset.
-
-        Returns:
-            Portfolio expected return.
-        """
-        return float(np.dot(weights, returns))
-
-    @staticmethod
-    def portfolio_variance(
-        weights: NDArray[np.float64],
-        cov_matrix: NDArray[np.float64],
-    ) -> float:
-        """Calculate portfolio variance.
-
-        Args:
-            weights: Asset weights.
-            cov_matrix: Covariance matrix of returns.
-
-        Returns:
-            Portfolio variance.
-        """
-        return float(np.dot(weights.T, np.dot(cov_matrix, weights)))
-
-    @staticmethod
-    def portfolio_volatility(
-        weights: NDArray[np.float64],
-        cov_matrix: NDArray[np.float64],
-    ) -> float:
-        """Calculate portfolio volatility (standard deviation).
-
-        Args:
-            weights: Asset weights.
-            cov_matrix: Covariance matrix of returns.
-
-        Returns:
-            Portfolio volatility.
-        """
-        return np.sqrt(CFAMetrics.portfolio_variance(weights, cov_matrix))
-
-    @staticmethod
-    def sharpe_ratio(
-        returns: NDArray[np.float64],
-        risk_free_rate: float = 0.0,
-    ) -> float:
-        """Calculate Sharpe ratio.
-
-        Args:
-            returns: Array of returns.
-            risk_free_rate: Risk-free rate (annualized).
-
-        Returns:
-            Sharpe ratio.
-        """
-        excess_returns = returns - risk_free_rate / 252  # Daily risk-free rate
-        if np.std(excess_returns) == 0:
-            return 0.0
-        return float(np.mean(excess_returns) / np.std(excess_returns) * np.sqrt(252))
+    # Delegate to core for basic portfolio calculations
+    portfolio_return = staticmethod(core.portfolio_return)
+    portfolio_variance = staticmethod(core.portfolio_variance)
+    portfolio_volatility = staticmethod(core.portfolio_volatility)
+    sharpe_ratio = staticmethod(core.sharpe_ratio)
 
     @staticmethod
     def sortino_ratio(
@@ -308,11 +252,7 @@ class CFAMetrics:
         Returns:
             Information ratio.
         """
-        active_returns = returns - benchmark_returns
-        tracking_error = np.std(active_returns) * np.sqrt(252)
-        if tracking_error == 0:
-            return 0.0
-        return float(np.mean(active_returns) * 252 / tracking_error)
+        return core.information_ratio(returns, benchmark_returns, periods_per_year=252)
 
     @staticmethod
     def tracking_error(
@@ -328,45 +268,11 @@ class CFAMetrics:
         Returns:
             Annualized tracking error.
         """
-        active_returns = returns - benchmark_returns
-        return float(np.std(active_returns) * np.sqrt(252))
+        return core.tracking_error(returns, benchmark_returns, periods_per_year=252)
 
-    @staticmethod
-    def beta(
-        returns: NDArray[np.float64],
-        market_returns: NDArray[np.float64],
-    ) -> float:
-        """Calculate beta coefficient.
-
-        Args:
-            returns: Array of asset returns.
-            market_returns: Array of market returns.
-
-        Returns:
-            Beta coefficient.
-        """
-        covariance = np.cov(returns, market_returns)[0, 1]
-        market_variance = np.var(market_returns)
-        if market_variance == 0:
-            return 0.0
-        return float(covariance / market_variance)
-
-    @staticmethod
-    def r_squared(
-        returns: NDArray[np.float64],
-        market_returns: NDArray[np.float64],
-    ) -> float:
-        """Calculate R-squared (coefficient of determination).
-
-        Args:
-            returns: Array of asset returns.
-            market_returns: Array of market returns.
-
-        Returns:
-            R-squared value.
-        """
-        correlation = np.corrcoef(returns, market_returns)[0, 1]
-        return float(correlation**2)
+    # Delegate to core for beta and r-squared calculations
+    beta = staticmethod(core.beta)
+    r_squared = staticmethod(core.r_squared)
 
     @staticmethod
     def max_drawdown(returns: NDArray[np.float64]) -> float:
@@ -378,10 +284,8 @@ class CFAMetrics:
         Returns:
             Maximum drawdown (as positive percentage).
         """
-        cumulative = np.cumprod(1 + returns)
-        running_max = np.maximum.accumulate(cumulative)
-        drawdowns = (cumulative - running_max) / running_max
-        return float(-np.min(drawdowns))
+        # Core returns negative, CFA convention returns positive
+        return abs(core.max_drawdown(returns))
 
     @staticmethod
     def calmar_ratio(
@@ -397,11 +301,7 @@ class CFAMetrics:
         Returns:
             Calmar ratio.
         """
-        max_dd = CFAMetrics.max_drawdown(returns)
-        if max_dd == 0:
-            return 0.0
-        annualized_return = np.mean(returns) * 252 - risk_free_rate
-        return float(annualized_return / max_dd)
+        return core.calmar_ratio(returns, risk_free_rate, periods_per_year=252)
 
     # ==================== FIXED INCOME ====================
 
@@ -833,120 +733,18 @@ class CFAMetrics:
 
     # ==================== QUANTITATIVE METHODS ====================
 
-    @staticmethod
-    def correlation(
-        x: NDArray[np.float64],
-        y: NDArray[np.float64],
-    ) -> float:
-        """Calculate Pearson correlation coefficient.
-
-        Args:
-            x: First data series.
-            y: Second data series.
-
-        Returns:
-            Correlation coefficient.
-        """
-        return float(np.corrcoef(x, y)[0, 1])
-
-    @staticmethod
-    def covariance(
-        x: NDArray[np.float64],
-        y: NDArray[np.float64],
-    ) -> float:
-        """Calculate covariance.
-
-        Args:
-            x: First data series.
-            y: Second data series.
-
-        Returns:
-            Covariance.
-        """
-        return float(np.cov(x, y)[0, 1])
-
-    @staticmethod
-    def standard_deviation(data: NDArray[np.float64]) -> float:
-        """Calculate standard deviation.
-
-        Args:
-            data: Data series.
-
-        Returns:
-            Standard deviation.
-        """
-        return float(np.std(data, ddof=1))
-
-    @staticmethod
-    def skewness(data: NDArray[np.float64]) -> float:
-        """Calculate skewness.
-
-        Args:
-            data: Data series.
-
-        Returns:
-            Skewness.
-        """
-        return float(stats.skew(data))
-
-    @staticmethod
-    def kurtosis(data: NDArray[np.float64]) -> float:
-        """Calculate excess kurtosis.
-
-        Args:
-            data: Data series.
-
-        Returns:
-            Excess kurtosis.
-        """
-        return float(stats.kurtosis(data))
+    # Delegate to core for basic statistics
+    correlation = staticmethod(core.correlation)
+    covariance = staticmethod(core.covariance)
+    standard_deviation = staticmethod(core.std)
+    skewness = staticmethod(core.skewness)
+    kurtosis = staticmethod(core.kurtosis)
 
     # ==================== EDHEC RISK METRICS ====================
 
-    @staticmethod
-    def semideviation(returns: NDArray[np.float64]) -> float:
-        """Calculate semideviation (downside deviation).
-
-        Semideviation measures the volatility of returns below the mean,
-        providing a risk measure focused on negative outcomes.
-
-        Formula: sqrt(E[min(r - mean, 0)²])
-
-        Args:
-            returns: Array of returns.
-
-        Returns:
-            Semideviation (downside standard deviation).
-        """
-        mean_return = np.mean(returns)
-        negative_returns = returns[returns < mean_return]
-        if len(negative_returns) == 0:
-            return 0.0
-        return float(np.std(negative_returns, ddof=1))
-
-    @staticmethod
-    def downside_deviation(
-        returns: NDArray[np.float64],
-        threshold: float = 0.0,
-    ) -> float:
-        """Calculate downside deviation relative to a threshold.
-
-        Also known as Target Downside Deviation or Lower Partial Moment.
-
-        Formula: sqrt(E[min(r - threshold, 0)²])
-
-        Args:
-            returns: Array of returns.
-            threshold: Minimum acceptable return (MAR). Default: 0.
-
-        Returns:
-            Downside deviation.
-        """
-        below_threshold = returns - threshold
-        below_threshold = below_threshold[below_threshold < 0]
-        if len(below_threshold) == 0:
-            return 0.0
-        return float(np.sqrt(np.mean(below_threshold**2)))
+    # Delegate to core for basic risk calculations
+    semideviation = staticmethod(core.semideviation)
+    downside_deviation = staticmethod(core.downside_deviation)
 
     @staticmethod
     def cornish_fisher_var(
@@ -1176,51 +974,10 @@ class CFAMetrics:
             "is_normal": CFAMetrics.jarque_bera_test(returns)["is_normal"],
         }
 
-    @staticmethod
-    def geometric_mean_return(returns: NDArray[np.float64]) -> float:
-        """Calculate geometric mean return.
-
-        Args:
-            returns: Array of returns.
-
-        Returns:
-            Geometric mean return.
-        """
-        return float(np.prod(1 + returns) ** (1 / len(returns)) - 1)
-
-    @staticmethod
-    def annualized_return(
-        returns: NDArray[np.float64],
-        periods_per_year: int = 252,
-    ) -> float:
-        """Calculate annualized return.
-
-        Args:
-            returns: Array of returns.
-            periods_per_year: Number of periods per year.
-
-        Returns:
-            Annualized return.
-        """
-        total_return = np.prod(1 + returns) - 1
-        years = len(returns) / periods_per_year
-        return float((1 + total_return) ** (1 / years) - 1)
-
-    @staticmethod
-    def annualized_volatility(
-        returns: NDArray[np.float64],
-        periods_per_year: int = 252,
-    ) -> float:
-        """Calculate annualized volatility.
-
-        Args:
-            returns: Array of returns.
-            periods_per_year: Number of periods per year.
-
-        Returns:
-            Annualized volatility.
-        """
-        return float(np.std(returns, ddof=1) * np.sqrt(periods_per_year))
+    # Delegate to core for return calculations
+    geometric_mean_return = staticmethod(core.geometric_mean_return)
+    annualized_return = staticmethod(core.annualize_return)
+    annualized_volatility = staticmethod(core.annualize_volatility)
 
     @staticmethod
     def calculate_portfolio_performance(
