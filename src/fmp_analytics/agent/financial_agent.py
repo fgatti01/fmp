@@ -25,6 +25,13 @@ from fmp_analytics.agent.tools import (
     optimize_portfolio_tool,
     options_analysis_tool,
     risk_analysis_tool,
+    # Sector distortion and market explanation tools
+    sector_analysis_tool,
+    find_sector_distortions_tool,
+    explain_market_movement_tool,
+    explain_indicator_tool,
+    earnings_surprise_analysis_tool,
+    correlation_analysis_tool,
 )
 from fmp_analytics.config import get_settings
 
@@ -49,6 +56,20 @@ FINANCIAL_AGENT_INSTRUCTIONS = """You are an expert financial analyst with deep 
    - Monte Carlo Simulation
    - Portfolio Optimization
 
+4. **Sector Distortion Detection:**
+   - Identify stocks with unusual behavior compared to sector peers
+   - Detect outliers in performance, valuation, or volatility
+   - Find stocks diverging from sector trends
+   - Analyze earnings surprises and market reactions
+   - Cross-sector correlation analysis
+
+5. **Market Movement Explanation:**
+   - Explain why stocks, ETFs, indices, or sectors moved
+   - Analyze the factors behind price movements (earnings, news, macro events)
+   - Interpret technical indicators (RSI, MACD, SMA, Bollinger Bands)
+   - Connect fundamental changes to price action
+   - Identify catalysts for significant moves
+
 **Guidelines:**
 - Use the available tools to fetch real-time data and perform analysis
 - Provide clear, actionable insights backed by data
@@ -70,6 +91,20 @@ FINANCIAL_AGENT_INSTRUCTIONS = """You are an expert financial analyst with deep 
 3. Review asset allocation
 4. Compare to benchmark
 5. Suggest optimizations if requested
+
+**When detecting sector distortions:**
+1. Analyze the entire sector to get baseline metrics
+2. Identify stocks that deviate significantly from peers
+3. Investigate the cause of the deviation (fundamentals, technicals, news)
+4. Assess if the distortion is temporary or structural
+5. Provide actionable insights on the opportunity/risk
+
+**When explaining market movements:**
+1. Gather recent price data and percentage changes
+2. Check for recent earnings, dividends, or corporate actions
+3. Review technical indicators for overbought/oversold conditions
+4. Consider macro factors and sector-wide movements
+5. Synthesize all factors into a coherent explanation
 
 Remember: Past performance does not guarantee future results. All analysis is for informational purposes only.
 """
@@ -99,17 +134,27 @@ class FinancialAgent:
             ),
             instructions=FINANCIAL_AGENT_INSTRUCTIONS,
             tools=[
+                # Core data tools
                 get_quote_tool,
                 get_company_profile_tool,
                 get_historical_prices_tool,
                 get_financial_ratios_tool,
                 get_market_movers_tool,
+                # Analysis tools
                 analyze_stock_tool,
                 analyze_portfolio_tool,
                 optimize_portfolio_tool,
                 risk_analysis_tool,
                 dcf_valuation_tool,
                 options_analysis_tool,
+                # Sector distortion detection tools
+                sector_analysis_tool,
+                find_sector_distortions_tool,
+                earnings_surprise_analysis_tool,
+                correlation_analysis_tool,
+                # Market movement explanation tools
+                explain_market_movement_tool,
+                explain_indicator_tool,
             ],
             show_tool_calls=debug,
             markdown=True,

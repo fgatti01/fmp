@@ -13,6 +13,13 @@ from fmp_analytics.agent.tools import (
     risk_analysis_tool,
     dcf_valuation_tool,
     options_analysis_tool,
+    # Sector distortion and market explanation tools
+    sector_analysis_tool,
+    find_sector_distortions_tool,
+    explain_market_movement_tool,
+    explain_indicator_tool,
+    earnings_surprise_analysis_tool,
+    correlation_analysis_tool,
 )
 
 __all__ = [
@@ -28,4 +35,11 @@ __all__ = [
     "risk_analysis_tool",
     "dcf_valuation_tool",
     "options_analysis_tool",
+    # Sector distortion and market explanation tools
+    "sector_analysis_tool",
+    "find_sector_distortions_tool",
+    "explain_market_movement_tool",
+    "explain_indicator_tool",
+    "earnings_surprise_analysis_tool",
+    "correlation_analysis_tool",
 ]
