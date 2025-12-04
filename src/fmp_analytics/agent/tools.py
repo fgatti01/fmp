@@ -1571,6 +1571,824 @@ def earnings_surprise_analysis_tool(
 
 
 @tool
+def comprehensive_equity_analysis_tool(
+    symbol: str,
+) -> str:
+    """Perform complete equity analysis with fundamental and quantitative metrics.
+
+    This tool gathers ALL available data for an equity and performs:
+    - Fundamental analysis (DCF, DDM, multiples, Graham number)
+    - Quantitative analysis (risk metrics, technical indicators, momentum)
+    - Fair value calculation using multiple methods
+    - Comparison of current price vs calculated fair values
+    - Buy/Sell/Hold recommendation based on the analysis
+
+    Use this tool when you need a complete picture of an equity's value and prospects.
+
+    Args:
+        symbol: Stock symbol (e.g., "AAPL")
+
+    Returns:
+        String with comprehensive equity analysis including fair value vs market price.
+    """
+    data_pipeline, analysis_pipeline = _get_pipeline()
+
+    async def fetch():
+        sym = symbol.upper()
+        to_date = date.today()
+        from_date = to_date - timedelta(days=365)
+
+        # Gather ALL data
+        quote_data = await data_pipeline._market_data.get_quote(sym)
+        quote = quote_data[0] if quote_data else None
+
+        profile_data = await data_pipeline._company_info.get_profile(sym)
+        profile = profile_data[0] if profile_data else None
+
+        # Financial statements
+        income_stmt = await data_pipeline._financials.get_income_statement(sym, "annual", limit=5)
+        balance_sheet = await data_pipeline._financials.get_balance_sheet(sym, "annual", limit=5)
+        cash_flow = await data_pipeline._financials.get_cash_flow_statement(sym, "annual", limit=5)
+
+        # Ratios and metrics
+        ratios_df = await data_pipeline.get_financial_ratios(sym, "annual", limit=3)
+        key_metrics = await data_pipeline._financials.get_key_metrics(sym, "annual", limit=3)
+
+        # Historical prices for technical analysis
+        hist = await data_pipeline.get_historical_prices(sym, str(from_date), str(to_date))
+
+        # DCF value from FMP
+        dcf_data = await data_pipeline._company_info.get_dcf(sym)
+
+        # Earnings surprises
+        earnings = await data_pipeline._financials.get_earnings_surprises(sym)
+
+        # Analyst estimates
+        try:
+            estimates = await data_pipeline._financials.get_analyst_estimates(sym, "annual")
+        except Exception:
+            estimates = []
+
+        # Analyst recommendations
+        try:
+            recommendations = await data_pipeline._company_info.get_analyst_recommendations(sym)
+        except Exception:
+            recommendations = []
+
+        # Sector peers for comparison
+        if profile:
+            peers_data = await data_pipeline._stock_list.get_stock_screener(
+                sector=profile.get("sector"),
+                is_actively_trading=True,
+                limit=20,
+            )
+            peer_symbols = [p["symbol"] for p in peers_data if p["symbol"] != sym][:10]
+            peer_quotes = await data_pipeline.get_quotes_batch(peer_symbols)
+        else:
+            peer_quotes = []
+
+        await data_pipeline._client.close()
+        return (quote, profile, income_stmt, balance_sheet, cash_flow, ratios_df,
+                key_metrics, hist, dcf_data, earnings, estimates, recommendations, peer_quotes)
+
+    (quote, profile, income_stmt, balance_sheet, cash_flow, ratios_df,
+     key_metrics, hist, dcf_data, earnings, estimates, recommendations, peer_quotes) = _run_async(fetch())
+
+    if not quote or not profile:
+        return f"Unable to fetch data for {symbol}"
+
+    import numpy as np
+
+    result = f"# Comprehensive Equity Analysis: {symbol.upper()}\n\n"
+
+    # ===== COMPANY OVERVIEW =====
+    result += "## 1. Company Overview\n\n"
+    result += f"**{profile.get('companyName', symbol)}** ({symbol.upper()})\n"
+    result += f"- Sector: {profile.get('sector', 'N/A')}\n"
+    result += f"- Industry: {profile.get('industry', 'N/A')}\n"
+    result += f"- Market Cap: ${profile.get('mktCap', 0):,.0f}\n"
+    result += f"- Employees: {profile.get('fullTimeEmployees', 'N/A'):,}\n"
+    result += f"- Exchange: {profile.get('exchange', 'N/A')}\n\n"
+
+    current_price = quote.get("price", 0)
+    result += f"**Current Price: ${current_price:.2f}**\n"
+    result += f"- Change Today: {quote.get('change', 0):+.2f} ({quote.get('changesPercentage', 0):+.2f}%)\n"
+    result += f"- 52-Week Range: ${quote.get('yearLow', 0):.2f} - ${quote.get('yearHigh', 0):.2f}\n"
+    result += f"- Volume: {quote.get('volume', 0):,} (Avg: {quote.get('avgVolume', 0):,})\n\n"
+
+    # ===== FUNDAMENTAL ANALYSIS =====
+    result += "## 2. Fundamental Analysis\n\n"
+
+    # Financial Statement Analysis
+    result += "### 2.1 Financial Performance\n\n"
+
+    if income_stmt:
+        latest_income = income_stmt[0] if income_stmt else {}
+        prev_income = income_stmt[1] if len(income_stmt) > 1 else {}
+
+        revenue = latest_income.get("revenue", 0)
+        net_income = latest_income.get("netIncome", 0)
+        gross_profit = latest_income.get("grossProfit", 0)
+        operating_income = latest_income.get("operatingIncome", 0)
+        eps = latest_income.get("eps", 0)
+
+        prev_revenue = prev_income.get("revenue", 1)
+        revenue_growth = ((revenue / prev_revenue) - 1) * 100 if prev_revenue else 0
+
+        result += "**Income Statement (Latest Year):**\n"
+        result += f"- Revenue: ${revenue:,.0f}\n"
+        result += f"- Revenue Growth: {revenue_growth:+.1f}% YoY\n"
+        result += f"- Gross Profit: ${gross_profit:,.0f} ({gross_profit/revenue*100:.1f}% margin)\n"
+        result += f"- Operating Income: ${operating_income:,.0f} ({operating_income/revenue*100:.1f}% margin)\n"
+        result += f"- Net Income: ${net_income:,.0f} ({net_income/revenue*100:.1f}% margin)\n"
+        result += f"- EPS: ${eps:.2f}\n\n"
+
+    if balance_sheet:
+        latest_bs = balance_sheet[0] if balance_sheet else {}
+
+        total_assets = latest_bs.get("totalAssets", 0)
+        total_debt = latest_bs.get("totalDebt", 0)
+        total_equity = latest_bs.get("totalStockholdersEquity", 0)
+        cash = latest_bs.get("cashAndCashEquivalents", 0)
+
+        result += "**Balance Sheet:**\n"
+        result += f"- Total Assets: ${total_assets:,.0f}\n"
+        result += f"- Cash & Equivalents: ${cash:,.0f}\n"
+        result += f"- Total Debt: ${total_debt:,.0f}\n"
+        result += f"- Shareholders' Equity: ${total_equity:,.0f}\n"
+        result += f"- Debt/Equity Ratio: {total_debt/total_equity:.2f}\n\n" if total_equity else ""
+
+    if cash_flow:
+        latest_cf = cash_flow[0] if cash_flow else {}
+
+        operating_cf = latest_cf.get("operatingCashFlow", 0)
+        fcf = latest_cf.get("freeCashFlow", 0)
+        capex = latest_cf.get("capitalExpenditure", 0)
+        dividends = latest_cf.get("dividendsPaid", 0)
+
+        result += "**Cash Flow:**\n"
+        result += f"- Operating Cash Flow: ${operating_cf:,.0f}\n"
+        result += f"- Free Cash Flow: ${fcf:,.0f}\n"
+        result += f"- CapEx: ${capex:,.0f}\n"
+        result += f"- Dividends Paid: ${abs(dividends):,.0f}\n\n"
+
+    # Key Ratios
+    result += "### 2.2 Key Financial Ratios\n\n"
+
+    if not ratios_df.empty:
+        r = ratios_df.iloc[0]
+
+        result += "**Profitability:**\n"
+        result += f"- Gross Margin: {r.get('grossProfitMargin', 0)*100:.1f}%\n"
+        result += f"- Operating Margin: {r.get('operatingProfitMargin', 0)*100:.1f}%\n"
+        result += f"- Net Margin: {r.get('netProfitMargin', 0)*100:.1f}%\n"
+        result += f"- ROE: {r.get('returnOnEquity', 0)*100:.1f}%\n"
+        result += f"- ROA: {r.get('returnOnAssets', 0)*100:.1f}%\n"
+        result += f"- ROIC: {r.get('returnOnCapitalEmployed', 0)*100:.1f}%\n\n"
+
+        result += "**Liquidity:**\n"
+        result += f"- Current Ratio: {r.get('currentRatio', 0):.2f}\n"
+        result += f"- Quick Ratio: {r.get('quickRatio', 0):.2f}\n"
+        result += f"- Cash Ratio: {r.get('cashRatio', 0):.2f}\n\n"
+
+        result += "**Valuation Multiples:**\n"
+        pe_ratio = r.get('priceEarningsRatio', 0) or quote.get('pe', 0)
+        pb_ratio = r.get('priceToBookRatio', 0)
+        ps_ratio = r.get('priceToSalesRatio', 0)
+        ev_ebitda = r.get('enterpriseValueMultiple', 0)
+        peg_ratio = r.get('priceEarningsToGrowthRatio', 0)
+
+        result += f"- P/E Ratio: {pe_ratio:.2f}\n"
+        result += f"- P/B Ratio: {pb_ratio:.2f}\n"
+        result += f"- P/S Ratio: {ps_ratio:.2f}\n"
+        result += f"- EV/EBITDA: {ev_ebitda:.2f}\n"
+        result += f"- PEG Ratio: {peg_ratio:.2f}\n\n"
+
+    # ===== VALUATION ANALYSIS =====
+    result += "## 3. Valuation Analysis (Fair Value Calculation)\n\n"
+
+    fair_values = {}
+    shares_outstanding = profile.get("volAvg", 0) or 1  # Will use proper calculation
+
+    # Method 1: FMP DCF Value
+    if dcf_data:
+        dcf_value = dcf_data.get("dcf", 0)
+        fair_values["DCF (FMP)"] = dcf_value
+        result += f"### 3.1 DCF Valuation (FMP Calculated)\n"
+        result += f"- **DCF Fair Value: ${dcf_value:.2f}**\n"
+        result += f"- Current Price: ${current_price:.2f}\n"
+        upside = ((dcf_value / current_price) - 1) * 100 if current_price else 0
+        result += f"- Implied Upside: {upside:+.1f}%\n\n"
+
+    # Method 2: Graham Number
+    if balance_sheet and income_stmt:
+        latest_bs = balance_sheet[0]
+        latest_income = income_stmt[0]
+        eps = latest_income.get("eps", 0) or 0
+        book_value_per_share = latest_bs.get("totalStockholdersEquity", 0) / (profile.get("volAvg", 1) or 1)
+
+        # Graham Number = sqrt(22.5 * EPS * Book Value)
+        if eps > 0 and book_value_per_share > 0:
+            graham_number = (22.5 * eps * book_value_per_share) ** 0.5
+            fair_values["Graham Number"] = graham_number
+            result += f"### 3.2 Graham Number (Value Investing)\n"
+            result += f"- EPS: ${eps:.2f}\n"
+            result += f"- Book Value/Share: ${book_value_per_share:.2f}\n"
+            result += f"- **Graham Number: ${graham_number:.2f}**\n"
+            upside = ((graham_number / current_price) - 1) * 100 if current_price else 0
+            result += f"- Implied Upside: {upside:+.1f}%\n\n"
+
+    # Method 3: Relative Valuation (Peer Comparison)
+    if peer_quotes and not ratios_df.empty:
+        result += f"### 3.3 Relative Valuation (Peer Comparison)\n\n"
+
+        peer_pes = [q.pe for q in peer_quotes if q.pe and q.pe > 0 and q.pe < 100]
+        if peer_pes:
+            avg_peer_pe = sum(peer_pes) / len(peer_pes)
+            median_peer_pe = sorted(peer_pes)[len(peer_pes)//2]
+
+            eps = income_stmt[0].get("eps", 0) if income_stmt else 0
+            if eps > 0:
+                fair_value_avg_pe = eps * avg_peer_pe
+                fair_value_median_pe = eps * median_peer_pe
+                fair_values["Peer Avg P/E"] = fair_value_avg_pe
+                fair_values["Peer Median P/E"] = fair_value_median_pe
+
+                result += f"- Sector Average P/E: {avg_peer_pe:.1f}x\n"
+                result += f"- Sector Median P/E: {median_peer_pe:.1f}x\n"
+                result += f"- Company EPS: ${eps:.2f}\n"
+                result += f"- **Fair Value (Avg P/E): ${fair_value_avg_pe:.2f}**\n"
+                result += f"- **Fair Value (Median P/E): ${fair_value_median_pe:.2f}**\n\n"
+
+    # Method 4: Custom DCF (if FCF available)
+    if cash_flow:
+        fcf = cash_flow[0].get("freeCashFlow", 0)
+        if fcf > 0:
+            # 5-year growth rate, 2% terminal, 10% discount
+            growth_rate = 0.10  # Assume 10% growth
+            terminal_growth = 0.025
+            discount_rate = 0.10
+
+            # Project 5 years of FCF
+            projected_fcfs = []
+            for year in range(1, 6):
+                projected_fcf = fcf * ((1 + growth_rate) ** year)
+                discounted = projected_fcf / ((1 + discount_rate) ** year)
+                projected_fcfs.append(discounted)
+
+            # Terminal value
+            terminal_fcf = projected_fcfs[-1] * (1 + terminal_growth)
+            terminal_value = terminal_fcf / (discount_rate - terminal_growth)
+            discounted_terminal = terminal_value / ((1 + discount_rate) ** 5)
+
+            enterprise_value = sum(projected_fcfs) + discounted_terminal
+            equity_value = enterprise_value - (balance_sheet[0].get("totalDebt", 0) if balance_sheet else 0) + (balance_sheet[0].get("cashAndCashEquivalents", 0) if balance_sheet else 0)
+
+            shares = profile.get("volAvg", 0) or 1  # Approximation
+            if shares and equity_value > 0:
+                fair_value_dcf = equity_value / (shares / quote.get("avgVolume", 1) * quote.get("sharesOutstanding", shares) if quote.get("sharesOutstanding") else shares)
+                # Use market cap based calculation
+                mkt_cap = profile.get("mktCap", 0)
+                if mkt_cap and current_price:
+                    shares_out = mkt_cap / current_price
+                    fair_value_dcf = equity_value / shares_out
+                    fair_values["Custom DCF"] = fair_value_dcf
+
+                    result += f"### 3.4 Custom DCF Model\n"
+                    result += f"- Latest FCF: ${fcf:,.0f}\n"
+                    result += f"- Growth Rate: {growth_rate*100:.0f}%\n"
+                    result += f"- Terminal Growth: {terminal_growth*100:.1f}%\n"
+                    result += f"- Discount Rate: {discount_rate*100:.0f}%\n"
+                    result += f"- Enterprise Value: ${enterprise_value:,.0f}\n"
+                    result += f"- **Fair Value/Share: ${fair_value_dcf:.2f}**\n\n"
+
+    # Fair Value Summary
+    result += "### 3.5 Fair Value Summary\n\n"
+    result += "| Method | Fair Value | vs Current | Status |\n"
+    result += "|--------|------------|------------|--------|\n"
+
+    for method, fv in fair_values.items():
+        diff = ((fv / current_price) - 1) * 100 if current_price else 0
+        if diff > 15:
+            status = "🟢 UNDERVALUED"
+        elif diff < -15:
+            status = "🔴 OVERVALUED"
+        else:
+            status = "🟡 FAIR VALUE"
+        result += f"| {method} | ${fv:.2f} | {diff:+.1f}% | {status} |\n"
+
+    if fair_values:
+        avg_fair_value = sum(fair_values.values()) / len(fair_values)
+        avg_diff = ((avg_fair_value / current_price) - 1) * 100 if current_price else 0
+        result += f"\n**Average Fair Value: ${avg_fair_value:.2f}** ({avg_diff:+.1f}% vs current)\n\n"
+
+    # ===== QUANTITATIVE ANALYSIS =====
+    result += "## 4. Quantitative Analysis\n\n"
+
+    if not hist.empty:
+        prices = hist["adjClose"].values
+
+        # Technical Indicators
+        result += "### 4.1 Technical Indicators\n\n"
+
+        # Moving Averages
+        sma_20 = np.mean(prices[-20:]) if len(prices) >= 20 else prices[-1]
+        sma_50 = np.mean(prices[-50:]) if len(prices) >= 50 else prices[-1]
+        sma_200 = np.mean(prices[-200:]) if len(prices) >= 200 else prices[-1]
+
+        result += "**Moving Averages:**\n"
+        result += f"- 20-day SMA: ${sma_20:.2f} ({((current_price/sma_20)-1)*100:+.1f}%)\n"
+        result += f"- 50-day SMA: ${sma_50:.2f} ({((current_price/sma_50)-1)*100:+.1f}%)\n"
+        result += f"- 200-day SMA: ${sma_200:.2f} ({((current_price/sma_200)-1)*100:+.1f}%)\n"
+
+        # Trend assessment
+        if current_price > sma_20 > sma_50 > sma_200:
+            result += "- Trend: 📈 **STRONG UPTREND** (Price > 20 > 50 > 200 SMA)\n"
+        elif current_price < sma_20 < sma_50 < sma_200:
+            result += "- Trend: 📉 **STRONG DOWNTREND** (Price < 20 < 50 < 200 SMA)\n"
+        elif current_price > sma_200:
+            result += "- Trend: ⬆️ **BULLISH** (Above 200 SMA)\n"
+        else:
+            result += "- Trend: ⬇️ **BEARISH** (Below 200 SMA)\n"
+
+        # RSI
+        changes = np.diff(prices)
+        gains = np.where(changes > 0, changes, 0)
+        losses = np.where(changes < 0, -changes, 0)
+        avg_gain = np.mean(gains[-14:])
+        avg_loss = np.mean(losses[-14:])
+        rs = avg_gain / avg_loss if avg_loss > 0 else 100
+        rsi = 100 - (100 / (1 + rs))
+
+        result += f"\n**RSI (14): {rsi:.1f}**\n"
+        if rsi > 70:
+            result += "- Status: 🔴 OVERBOUGHT\n"
+        elif rsi < 30:
+            result += "- Status: 🟢 OVERSOLD\n"
+        else:
+            result += "- Status: ⚪ NEUTRAL\n"
+
+        # Volatility
+        returns = np.diff(prices) / prices[:-1]
+        volatility_daily = np.std(returns)
+        volatility_annual = volatility_daily * np.sqrt(252) * 100
+
+        result += f"\n**Volatility:**\n"
+        result += f"- Daily: {volatility_daily*100:.2f}%\n"
+        result += f"- Annualized: {volatility_annual:.1f}%\n"
+
+        # Risk Metrics
+        result += "\n### 4.2 Risk Metrics\n\n"
+
+        # VaR
+        var_95 = np.percentile(returns, 5) * 100
+        var_99 = np.percentile(returns, 1) * 100
+        result += f"- 95% VaR (Daily): {var_95:.2f}%\n"
+        result += f"- 99% VaR (Daily): {var_99:.2f}%\n"
+
+        # Max Drawdown
+        cumulative = np.cumprod(1 + returns)
+        running_max = np.maximum.accumulate(cumulative)
+        drawdowns = (cumulative - running_max) / running_max
+        max_drawdown = np.min(drawdowns) * 100
+
+        result += f"- Max Drawdown (1Y): {max_drawdown:.1f}%\n"
+        result += f"- Beta: {profile.get('beta', 1.0):.2f}\n"
+
+        # Sharpe approximation
+        avg_return = np.mean(returns) * 252
+        sharpe = (avg_return - 0.05) / (volatility_annual / 100) if volatility_annual > 0 else 0
+        result += f"- Sharpe Ratio (Est): {sharpe:.2f}\n\n"
+
+    # ===== ANALYST SENTIMENT =====
+    result += "## 5. Analyst Sentiment\n\n"
+
+    if estimates:
+        result += "### 5.1 Earnings Estimates\n\n"
+        for est in estimates[:2]:
+            result += f"**{est.get('date', 'N/A')}:**\n"
+            result += f"- Revenue Est: ${est.get('estimatedRevenueAvg', 0):,.0f}\n"
+            result += f"- EPS Est: ${est.get('estimatedEpsAvg', 0):.2f}\n"
+
+    if earnings:
+        latest_earnings = earnings[0]
+        actual = latest_earnings.get("actualEarningResult", 0)
+        estimated = latest_earnings.get("estimatedEarning", 0)
+        if estimated:
+            surprise = ((actual - estimated) / abs(estimated)) * 100
+            result += f"\n### 5.2 Latest Earnings\n"
+            result += f"- Actual EPS: ${actual:.2f}\n"
+            result += f"- Estimated EPS: ${estimated:.2f}\n"
+            result += f"- Surprise: {surprise:+.1f}%\n"
+
+    if recommendations:
+        result += "\n### 5.3 Analyst Recommendations\n\n"
+        for rec in recommendations[:3]:
+            result += f"- {rec.get('date', 'N/A')}: {rec.get('analystRatingsStrongBuy', 0)} Strong Buy, "
+            result += f"{rec.get('analystRatingsBuy', 0)} Buy, {rec.get('analystRatingsHold', 0)} Hold, "
+            result += f"{rec.get('analystRatingsSell', 0)} Sell\n"
+
+    # ===== FINAL RECOMMENDATION =====
+    result += "\n## 6. Investment Recommendation\n\n"
+
+    # Score calculation
+    scores = []
+
+    # Valuation score
+    if fair_values:
+        avg_fair_value = sum(fair_values.values()) / len(fair_values)
+        valuation_score = min(100, max(0, 50 + (avg_fair_value / current_price - 1) * 100)) if current_price else 50
+        scores.append(("Valuation", valuation_score))
+
+    # Profitability score
+    if not ratios_df.empty:
+        r = ratios_df.iloc[0]
+        roe = r.get('returnOnEquity', 0) * 100
+        margin = r.get('netProfitMargin', 0) * 100
+        prof_score = min(100, (roe * 2 + margin * 2))
+        scores.append(("Profitability", prof_score))
+
+    # Technical score
+    if not hist.empty:
+        tech_score = 50
+        if current_price > sma_50:
+            tech_score += 15
+        if current_price > sma_200:
+            tech_score += 15
+        if 30 < rsi < 70:
+            tech_score += 10
+        elif rsi < 30:
+            tech_score += 20  # Oversold opportunity
+        scores.append(("Technical", min(100, tech_score)))
+
+    # Risk score (inverse - lower risk = higher score)
+    if not hist.empty:
+        risk_score = max(0, 100 - volatility_annual)
+        scores.append(("Risk-Adjusted", risk_score))
+
+    if scores:
+        overall_score = sum(s[1] for s in scores) / len(scores)
+
+        result += "**Scoring Summary:**\n"
+        for name, score in scores:
+            bar = "█" * int(score/10) + "░" * (10 - int(score/10))
+            result += f"- {name}: {bar} {score:.0f}/100\n"
+
+        result += f"\n**Overall Score: {overall_score:.0f}/100**\n\n"
+
+        # Recommendation
+        result += "**RECOMMENDATION:** "
+        if overall_score >= 70 and avg_fair_value > current_price * 1.1:
+            result += "🟢 **STRONG BUY**\n"
+            result += "- Fundamentals are strong\n"
+            result += "- Stock appears undervalued\n"
+            result += "- Technical setup is favorable\n"
+        elif overall_score >= 60 and avg_fair_value > current_price:
+            result += "🟢 **BUY**\n"
+            result += "- Decent fundamentals\n"
+            result += "- Trading below fair value\n"
+        elif overall_score >= 50 or (avg_fair_value > current_price * 0.9 and avg_fair_value < current_price * 1.1):
+            result += "🟡 **HOLD**\n"
+            result += "- Trading near fair value\n"
+            result += "- Wait for better entry or exit point\n"
+        elif overall_score >= 40:
+            result += "🟠 **REDUCE**\n"
+            result += "- Some concerns with valuation or fundamentals\n"
+            result += "- Consider taking partial profits\n"
+        else:
+            result += "🔴 **SELL**\n"
+            result += "- Stock appears overvalued\n"
+            result += "- Fundamental or technical concerns\n"
+
+    result += "\n---\n*Disclaimer: This analysis is for informational purposes only and does not constitute investment advice.*\n"
+
+    return result
+
+
+@tool
+def comprehensive_sector_analysis_tool(
+    sector: str,
+) -> str:
+    """Perform complete sector analysis comparing all equities fundamentally and quantitatively.
+
+    This tool analyzes an entire sector by:
+    - Gathering fundamental data for all major companies in the sector
+    - Calculating fair values for each company using multiple methods
+    - Comparing valuations across the sector
+    - Identifying the most undervalued and overvalued stocks
+    - Providing sector-level insights and recommendations
+
+    Use this tool when you need a complete picture of a sector and its best investment opportunities.
+
+    Args:
+        sector: Sector name (e.g., "Technology", "Healthcare", "Financial Services",
+                "Consumer Cyclical", "Industrials", "Energy", "Basic Materials",
+                "Communication Services", "Consumer Defensive", "Utilities", "Real Estate")
+
+    Returns:
+        String with comprehensive sector analysis including best opportunities.
+    """
+    data_pipeline, _ = _get_pipeline()
+
+    async def fetch():
+        # Get all stocks in sector
+        stocks = await data_pipeline._stock_list.get_stock_screener(
+            sector=sector,
+            is_actively_trading=True,
+            limit=50,
+        )
+
+        if not stocks:
+            return None, None, None, None, None
+
+        # Get top stocks by market cap
+        symbols = [s["symbol"] for s in stocks[:30]]
+
+        # Get quotes
+        quotes = await data_pipeline.get_quotes_batch(symbols)
+
+        # Get profiles
+        profiles = await data_pipeline.get_company_profiles_batch(symbols[:25])
+
+        # Get ratios for top companies
+        ratios_data = {}
+        for sym in symbols[:15]:
+            try:
+                ratios = await data_pipeline.get_financial_ratios(sym, "annual", limit=1)
+                if not ratios.empty:
+                    ratios_data[sym] = ratios.iloc[0].to_dict()
+            except Exception:
+                pass
+
+        # Get DCF values
+        dcf_data = {}
+        for sym in symbols[:15]:
+            try:
+                dcf = await data_pipeline._company_info.get_dcf(sym)
+                if dcf:
+                    dcf_data[sym] = dcf
+            except Exception:
+                pass
+
+        # Get sector performance
+        sector_perf = await data_pipeline.get_sector_performance()
+
+        await data_pipeline._client.close()
+        return quotes, profiles, ratios_data, dcf_data, sector_perf
+
+    quotes, profiles, ratios_data, dcf_data, sector_perf = _run_async(fetch())
+
+    if not quotes:
+        return f"No data found for sector: {sector}"
+
+    import numpy as np
+
+    result = f"# Comprehensive Sector Analysis: {sector}\n\n"
+
+    # ===== SECTOR OVERVIEW =====
+    result += "## 1. Sector Overview\n\n"
+
+    # Sector performance
+    sector_change = None
+    for _, row in sector_perf.iterrows():
+        if sector.lower() in row.get("sector", "").lower():
+            sector_change = float(row.get("changesPercentage", "0").replace("%", ""))
+            break
+
+    if sector_change is not None:
+        emoji = "📈" if sector_change >= 0 else "📉"
+        result += f"**Sector Performance Today:** {emoji} {sector_change:+.2f}%\n\n"
+
+    # Summary statistics
+    total_mkt_cap = sum(q.market_cap or 0 for q in quotes)
+    avg_pe = np.mean([q.pe for q in quotes if q.pe and 0 < q.pe < 100])
+    avg_change = np.mean([q.changes_percentage or 0 for q in quotes])
+
+    result += f"**Sector Statistics:**\n"
+    result += f"- Total Market Cap: ${total_mkt_cap:,.0f}\n"
+    result += f"- Average P/E: {avg_pe:.1f}x\n"
+    result += f"- Average Stock Change: {avg_change:+.2f}%\n"
+    result += f"- Companies Analyzed: {len(quotes)}\n\n"
+
+    # ===== COMPANY COMPARISON =====
+    result += "## 2. Company Comparison\n\n"
+
+    # Build comparison table
+    companies = []
+    profile_lookup = {p.symbol: p for p in profiles}
+
+    for q in quotes:
+        company = {
+            "symbol": q.symbol,
+            "name": q.name,
+            "price": q.price,
+            "change": q.changes_percentage or 0,
+            "mkt_cap": q.market_cap or 0,
+            "pe": q.pe if q.pe and 0 < q.pe < 200 else None,
+            "volume_ratio": (q.volume / q.avg_volume) if q.avg_volume else 1,
+        }
+
+        # Add profile data
+        profile = profile_lookup.get(q.symbol)
+        if profile:
+            company["industry"] = profile.industry
+            company["beta"] = profile.beta
+
+        # Add ratios
+        ratios = ratios_data.get(q.symbol, {})
+        company["roe"] = ratios.get("returnOnEquity", 0)
+        company["margin"] = ratios.get("netProfitMargin", 0)
+        company["debt_equity"] = ratios.get("debtEquityRatio", 0)
+        company["pb"] = ratios.get("priceToBookRatio", 0)
+        company["ps"] = ratios.get("priceToSalesRatio", 0)
+
+        # Add DCF data
+        dcf = dcf_data.get(q.symbol, {})
+        company["dcf_value"] = dcf.get("dcf", 0) if dcf else 0
+        if company["dcf_value"] and company["price"]:
+            company["dcf_upside"] = ((company["dcf_value"] / company["price"]) - 1) * 100
+        else:
+            company["dcf_upside"] = 0
+
+        companies.append(company)
+
+    # Sort by market cap
+    companies.sort(key=lambda x: -x["mkt_cap"])
+
+    # Top Companies Table
+    result += "### 2.1 Top Companies by Market Cap\n\n"
+    result += "| Company | Price | Change | P/E | ROE | Margin | DCF Value | Upside |\n"
+    result += "|---------|-------|--------|-----|-----|--------|-----------|--------|\n"
+
+    for c in companies[:15]:
+        pe_str = f"{c['pe']:.1f}x" if c['pe'] else "N/A"
+        roe_str = f"{c['roe']*100:.1f}%" if c['roe'] else "N/A"
+        margin_str = f"{c['margin']*100:.1f}%" if c['margin'] else "N/A"
+        dcf_str = f"${c['dcf_value']:.0f}" if c['dcf_value'] else "N/A"
+        upside_str = f"{c['dcf_upside']:+.0f}%" if c['dcf_upside'] else "N/A"
+
+        result += f"| **{c['symbol']}** | ${c['price']:.2f} | {c['change']:+.1f}% | {pe_str} | {roe_str} | {margin_str} | {dcf_str} | {upside_str} |\n"
+
+    # ===== VALUATION ANALYSIS =====
+    result += "\n## 3. Valuation Analysis\n\n"
+
+    # Find undervalued stocks (DCF upside > 20%)
+    undervalued = [c for c in companies if c["dcf_upside"] > 20]
+    undervalued.sort(key=lambda x: -x["dcf_upside"])
+
+    if undervalued:
+        result += "### 3.1 Most Undervalued (DCF Upside > 20%)\n\n"
+        for c in undervalued[:7]:
+            result += f"**{c['symbol']}** - {c['name']}\n"
+            result += f"- Current Price: ${c['price']:.2f}\n"
+            result += f"- DCF Fair Value: ${c['dcf_value']:.2f}\n"
+            result += f"- **Upside Potential: {c['dcf_upside']:+.1f}%**\n"
+            if c['pe']:
+                pe_vs_sector = ((c['pe'] / avg_pe) - 1) * 100
+                result += f"- P/E: {c['pe']:.1f}x ({pe_vs_sector:+.1f}% vs sector avg)\n"
+            result += "\n"
+
+    # Find overvalued stocks (DCF upside < -20%)
+    overvalued = [c for c in companies if c["dcf_upside"] < -20]
+    overvalued.sort(key=lambda x: x["dcf_upside"])
+
+    if overvalued:
+        result += "### 3.2 Most Overvalued (DCF Downside > 20%)\n\n"
+        for c in overvalued[:5]:
+            result += f"**{c['symbol']}** - {c['name']}\n"
+            result += f"- Current Price: ${c['price']:.2f}\n"
+            result += f"- DCF Fair Value: ${c['dcf_value']:.2f}\n"
+            result += f"- **Downside Risk: {c['dcf_upside']:.1f}%**\n\n"
+
+    # ===== FUNDAMENTAL SCREENING =====
+    result += "## 4. Fundamental Screening\n\n"
+
+    # High Quality (High ROE, Good Margins)
+    quality = [c for c in companies if c['roe'] and c['roe'] > 0.15 and c['margin'] and c['margin'] > 0.10]
+    quality.sort(key=lambda x: -x['roe'])
+
+    if quality:
+        result += "### 4.1 Quality Leaders (ROE > 15%, Margin > 10%)\n\n"
+        for c in quality[:5]:
+            result += f"- **{c['symbol']}**: ROE {c['roe']*100:.1f}%, Margin {c['margin']*100:.1f}%\n"
+        result += "\n"
+
+    # Value Opportunities (Low P/E, Positive ROE)
+    value = [c for c in companies if c['pe'] and c['pe'] < avg_pe * 0.7 and c['roe'] and c['roe'] > 0.05]
+    value.sort(key=lambda x: x['pe'])
+
+    if value:
+        result += "### 4.2 Value Opportunities (Low P/E, Profitable)\n\n"
+        for c in value[:5]:
+            result += f"- **{c['symbol']}**: P/E {c['pe']:.1f}x (vs sector {avg_pe:.1f}x), ROE {c['roe']*100:.1f}%\n"
+        result += "\n"
+
+    # Momentum (Top Performers Today)
+    momentum = sorted(companies, key=lambda x: -x['change'])[:5]
+
+    result += "### 4.3 Momentum Leaders (Top Performers Today)\n\n"
+    for c in momentum:
+        vol_str = f"({c['volume_ratio']:.1f}x vol)" if c['volume_ratio'] > 1.5 else ""
+        result += f"- **{c['symbol']}**: {c['change']:+.2f}% {vol_str}\n"
+    result += "\n"
+
+    # Laggards
+    laggards = sorted(companies, key=lambda x: x['change'])[:5]
+
+    result += "### 4.4 Today's Laggards (Potential Opportunities?)\n\n"
+    for c in laggards:
+        result += f"- **{c['symbol']}**: {c['change']:+.2f}%"
+        if c['dcf_upside'] > 10:
+            result += " *(Still undervalued per DCF)*"
+        result += "\n"
+
+    # ===== SECTOR METRICS =====
+    result += "\n## 5. Sector Metrics Distribution\n\n"
+
+    # P/E distribution
+    pe_values = [c['pe'] for c in companies if c['pe']]
+    if pe_values:
+        result += "**P/E Ratio:**\n"
+        result += f"- Low: {min(pe_values):.1f}x\n"
+        result += f"- Median: {sorted(pe_values)[len(pe_values)//2]:.1f}x\n"
+        result += f"- High: {max(pe_values):.1f}x\n"
+        result += f"- Average: {np.mean(pe_values):.1f}x\n\n"
+
+    # ROE distribution
+    roe_values = [c['roe']*100 for c in companies if c['roe']]
+    if roe_values:
+        result += "**ROE (Return on Equity):**\n"
+        result += f"- Low: {min(roe_values):.1f}%\n"
+        result += f"- Median: {sorted(roe_values)[len(roe_values)//2]:.1f}%\n"
+        result += f"- High: {max(roe_values):.1f}%\n"
+        result += f"- Average: {np.mean(roe_values):.1f}%\n\n"
+
+    # ===== TOP PICKS =====
+    result += "## 6. Sector Top Picks\n\n"
+
+    # Score each company
+    scored_companies = []
+    for c in companies:
+        score = 0
+
+        # Valuation score (DCF upside)
+        if c['dcf_upside'] > 30:
+            score += 30
+        elif c['dcf_upside'] > 15:
+            score += 20
+        elif c['dcf_upside'] > 0:
+            score += 10
+
+        # Quality score (ROE)
+        if c['roe'] and c['roe'] > 0.20:
+            score += 25
+        elif c['roe'] and c['roe'] > 0.15:
+            score += 20
+        elif c['roe'] and c['roe'] > 0.10:
+            score += 15
+        elif c['roe'] and c['roe'] > 0.05:
+            score += 10
+
+        # Margin score
+        if c['margin'] and c['margin'] > 0.20:
+            score += 20
+        elif c['margin'] and c['margin'] > 0.10:
+            score += 15
+        elif c['margin'] and c['margin'] > 0.05:
+            score += 10
+
+        # Value score (P/E below sector)
+        if c['pe'] and avg_pe:
+            if c['pe'] < avg_pe * 0.7:
+                score += 15
+            elif c['pe'] < avg_pe * 0.9:
+                score += 10
+
+        # Low debt score
+        if c['debt_equity'] and c['debt_equity'] < 0.5:
+            score += 10
+
+        c['score'] = score
+        if score > 0:
+            scored_companies.append(c)
+
+    scored_companies.sort(key=lambda x: -x['score'])
+
+    result += "### Best Investment Opportunities (Composite Score)\n\n"
+    for i, c in enumerate(scored_companies[:10], 1):
+        medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
+        result += f"**{medal} {c['symbol']}** - Score: {c['score']}/100\n"
+        result += f"   - Price: ${c['price']:.2f} | "
+        result += f"DCF Upside: {c['dcf_upside']:+.0f}% | " if c['dcf_upside'] else ""
+        result += f"P/E: {c['pe']:.1f}x | " if c['pe'] else ""
+        result += f"ROE: {c['roe']*100:.0f}%\n" if c['roe'] else "\n"
+
+    result += "\n---\n*Disclaimer: This analysis is for informational purposes only and does not constitute investment advice.*\n"
+
+    return result
+
+
+@tool
 def correlation_analysis_tool(
     symbols: str,
     days: int = 60,

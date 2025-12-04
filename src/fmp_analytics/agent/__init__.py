@@ -20,6 +20,9 @@ from fmp_analytics.agent.tools import (
     explain_indicator_tool,
     earnings_surprise_analysis_tool,
     correlation_analysis_tool,
+    # Comprehensive analysis tools
+    comprehensive_equity_analysis_tool,
+    comprehensive_sector_analysis_tool,
 )
 
 __all__ = [
@@ -42,4 +45,7 @@ __all__ = [
     "explain_indicator_tool",
     "earnings_surprise_analysis_tool",
     "correlation_analysis_tool",
+    # Comprehensive analysis tools
+    "comprehensive_equity_analysis_tool",
+    "comprehensive_sector_analysis_tool",
 ]

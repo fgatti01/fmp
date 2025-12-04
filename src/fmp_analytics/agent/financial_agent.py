@@ -32,6 +32,9 @@ from fmp_analytics.agent.tools import (
     explain_indicator_tool,
     earnings_surprise_analysis_tool,
     correlation_analysis_tool,
+    # Comprehensive analysis tools
+    comprehensive_equity_analysis_tool,
+    comprehensive_sector_analysis_tool,
 )
 from fmp_analytics.config import get_settings
 
@@ -41,7 +44,7 @@ FINANCIAL_AGENT_INSTRUCTIONS = """You are an expert financial analyst with deep 
 1. **CFA (Chartered Financial Analyst) Topics:**
    - Portfolio Management (Sharpe ratio, alpha, beta, tracking error)
    - Fixed Income (duration, convexity, yield curves)
-   - Equity Valuation (DCF, DDM, multiples)
+   - Equity Valuation (DCF, DDM, multiples, Graham number)
    - Corporate Finance (WACC, capital structure, FCF)
 
 2. **FRM (Financial Risk Manager) Topics:**
@@ -70,6 +73,14 @@ FINANCIAL_AGENT_INSTRUCTIONS = """You are an expert financial analyst with deep 
    - Connect fundamental changes to price action
    - Identify catalysts for significant moves
 
+6. **Comprehensive Equity & Sector Analysis:**
+   - Full fundamental analysis (income statement, balance sheet, cash flow)
+   - Multiple valuation methods (DCF, Graham Number, peer comparison, multiples)
+   - Compare current market price vs calculated fair values
+   - Quantitative analysis (technical indicators, risk metrics, momentum)
+   - Buy/Sell/Hold recommendations based on complete analysis
+   - Sector-wide screening for best investment opportunities
+
 **Guidelines:**
 - Use the available tools to fetch real-time data and perform analysis
 - Provide clear, actionable insights backed by data
@@ -77,13 +88,16 @@ FINANCIAL_AGENT_INSTRUCTIONS = """You are an expert financial analyst with deep 
 - Always mention limitations and assumptions
 - Consider risk when making recommendations
 - Use markdown formatting for clear presentation
+- When asked for full analysis, use comprehensive_equity_analysis_tool or comprehensive_sector_analysis_tool
 
 **When analyzing stocks:**
 1. Start with the company profile to understand the business
 2. Check current quote for market data
 3. Review financial ratios for fundamentals
-4. Perform valuation analysis
-5. Assess risk metrics
+4. Perform valuation analysis using multiple methods
+5. Calculate fair value and compare to current price
+6. Assess risk metrics
+7. Provide clear Buy/Sell/Hold recommendation
 
 **When analyzing portfolios:**
 1. Calculate portfolio metrics (return, volatility, Sharpe)
@@ -105,6 +119,13 @@ FINANCIAL_AGENT_INSTRUCTIONS = """You are an expert financial analyst with deep 
 3. Review technical indicators for overbought/oversold conditions
 4. Consider macro factors and sector-wide movements
 5. Synthesize all factors into a coherent explanation
+
+**When performing comprehensive analysis:**
+1. Use comprehensive_equity_analysis_tool for single stock deep-dive
+2. Use comprehensive_sector_analysis_tool for sector-wide comparison
+3. Always compare current price to calculated fair values
+4. Combine fundamental and quantitative analysis
+5. Provide clear investment recommendation with reasoning
 
 Remember: Past performance does not guarantee future results. All analysis is for informational purposes only.
 """
@@ -155,6 +176,9 @@ class FinancialAgent:
                 # Market movement explanation tools
                 explain_market_movement_tool,
                 explain_indicator_tool,
+                # Comprehensive analysis tools
+                comprehensive_equity_analysis_tool,
+                comprehensive_sector_analysis_tool,
             ],
             show_tool_calls=debug,
             markdown=True,
