@@ -1,11 +1,14 @@
 """FRM (Financial Risk Manager) metrics calculations.
 
 This module implements risk management metrics based on the FRM curriculum:
-- Market Risk: VaR, CVaR/ES, Stress Testing
-- Credit Risk: PD, LGD, EAD, Expected Loss
+- Market Risk: VaR, CVaR/ES, Stress Testing, GARCH
+- Credit Risk: PD, LGD, EAD, Expected Loss, Merton Model
 - Operational Risk: Loss Distribution Approach
-- Liquidity Risk: Liquidity Coverage Ratio
+- Liquidity Risk: Liquidity Coverage Ratio, Bid-Ask Spread
 - Portfolio Risk: Component VaR, Marginal VaR
+- Backtesting: Kupiec Test, Christoffersen Test
+
+Based on Norte Asset Management Quant Finance Master Guide.
 """
 
 from dataclasses import dataclass
@@ -719,3 +722,375 @@ class FRMMetrics:
             unexpected_loss=FRMMetrics.unexpected_loss(pd, lgd, ead, lgd_volatility),
             credit_var=FRMMetrics.credit_var(pd, lgd, ead, 0.99, correlation),
         )
+
+    # ==================== GARCH VOLATILITY ====================
+
+    @staticmethod
+    def garch_11_volatility(
+        returns: NDArray[np.float64],
+        omega: float = 0.000001,
+        alpha: float = 0.08,
+        beta: float = 0.90,
+    ) -> dict[str, Any]:
+        """Calculate GARCH(1,1) conditional volatility.
+
+        Formula:
+            σ²_t = ω + α*ε²_{t-1} + β*σ²_{t-1}
+
+        Where:
+            - ω: constant (long-run variance contribution)
+            - α: weight of past shock (ARCH term)
+            - β: weight of past variance (GARCH term)
+            - α + β < 1 for stationarity
+
+        Args:
+            returns: Array of returns.
+            omega: Constant term.
+            alpha: ARCH coefficient.
+            beta: GARCH coefficient.
+
+        Returns:
+            Dictionary with volatility series and parameters.
+        """
+        n = len(returns)
+        variance = np.zeros(n)
+
+        # Initial variance
+        variance[0] = returns.var()
+
+        for t in range(1, n):
+            variance[t] = omega + alpha * returns[t - 1] ** 2 + beta * variance[t - 1]
+
+        volatility = np.sqrt(variance)
+
+        # Long-run variance (unconditional)
+        persistence = alpha + beta
+        if persistence < 1:
+            long_run_var = omega / (1 - persistence)
+        else:
+            long_run_var = variance[-1]
+
+        return {
+            "volatility": volatility,
+            "variance": variance,
+            "current_vol": float(volatility[-1]),
+            "long_run_vol": float(np.sqrt(long_run_var)),
+            "persistence": float(persistence),
+            "half_life": float(np.log(0.5) / np.log(persistence)) if persistence < 1 else float("inf"),
+        }
+
+    @staticmethod
+    def ewma_volatility(
+        returns: NDArray[np.float64],
+        lambda_decay: float = 0.94,
+    ) -> NDArray[np.float64]:
+        """Calculate EWMA (RiskMetrics) volatility.
+
+        Formula:
+            σ²_t = λ*σ²_{t-1} + (1-λ)*r²_{t-1}
+
+        Args:
+            returns: Array of returns.
+            lambda_decay: Decay factor (typically 0.94 for daily data).
+
+        Returns:
+            Array of EWMA volatilities.
+        """
+        n = len(returns)
+        variance = np.zeros(n)
+        variance[0] = returns.var()
+
+        for t in range(1, n):
+            variance[t] = lambda_decay * variance[t - 1] + (1 - lambda_decay) * returns[t - 1] ** 2
+
+        return np.sqrt(variance)
+
+    # ==================== VAR BACKTESTING ====================
+
+    @staticmethod
+    def backtest_var_kupiec(
+        returns: NDArray[np.float64],
+        var_forecasts: NDArray[np.float64],
+        confidence_level: float = 0.95,
+    ) -> dict[str, Any]:
+        """Backtest VaR using Kupiec POF (Proportion of Failures) test.
+
+        Tests whether the observed violation rate equals the expected rate.
+
+        Formula:
+            LR_POF = -2 * [ln((1-α)^(n-x) * α^x) - ln((1-p)^(n-x) * p^x)]
+
+        Where:
+            - α: expected failure rate (1 - confidence)
+            - p: observed failure rate
+            - n: total observations
+            - x: number of violations
+
+        Args:
+            returns: Array of actual returns.
+            var_forecasts: Array of VaR forecasts (positive values).
+            confidence_level: VaR confidence level.
+
+        Returns:
+            Dictionary with test results.
+        """
+        losses = -returns
+        violations = losses > var_forecasts
+        n_violations = int(violations.sum())
+        n_obs = len(returns)
+
+        # Expected violations
+        expected_rate = 1 - confidence_level
+        expected_violations = n_obs * expected_rate
+
+        # Observed rate
+        observed_rate = n_violations / n_obs
+
+        # Kupiec LR test statistic
+        if n_violations == 0 or n_violations == n_obs:
+            lr_pof = 0
+        else:
+            lr_pof = -2 * (
+                np.log((1 - expected_rate) ** (n_obs - n_violations) * expected_rate**n_violations)
+                - np.log((1 - observed_rate) ** (n_obs - n_violations) * observed_rate**n_violations)
+            )
+
+        # P-value (chi-square with 1 df)
+        p_value = 1 - stats.chi2.cdf(lr_pof, df=1)
+
+        # Basel Traffic Light
+        if n_violations <= expected_violations:
+            zone = "Green"
+        elif n_violations <= expected_violations * 1.5:
+            zone = "Yellow"
+        else:
+            zone = "Red"
+
+        return {
+            "violations": n_violations,
+            "expected_violations": float(expected_violations),
+            "violation_rate": float(observed_rate),
+            "expected_rate": float(expected_rate),
+            "LR_POF": float(lr_pof),
+            "p_value": float(p_value),
+            "reject_null": p_value < 0.05,
+            "traffic_light": zone,
+        }
+
+    @staticmethod
+    def backtest_var_christoffersen(
+        returns: NDArray[np.float64],
+        var_forecasts: NDArray[np.float64],
+        confidence_level: float = 0.95,
+    ) -> dict[str, Any]:
+        """Backtest VaR using Christoffersen Independence test.
+
+        Tests whether violations are independent (not clustered).
+
+        Args:
+            returns: Array of actual returns.
+            var_forecasts: Array of VaR forecasts.
+            confidence_level: VaR confidence level.
+
+        Returns:
+            Dictionary with test results.
+        """
+        losses = -returns
+        violations = (losses > var_forecasts).astype(int)
+
+        # Transition counts
+        n00 = n01 = n10 = n11 = 0
+
+        for t in range(1, len(violations)):
+            if violations[t - 1] == 0 and violations[t] == 0:
+                n00 += 1
+            elif violations[t - 1] == 0 and violations[t] == 1:
+                n01 += 1
+            elif violations[t - 1] == 1 and violations[t] == 0:
+                n10 += 1
+            else:
+                n11 += 1
+
+        # Transition probabilities
+        p01 = n01 / (n00 + n01) if (n00 + n01) > 0 else 0
+        p11 = n11 / (n10 + n11) if (n10 + n11) > 0 else 0
+        p_unconditional = (n01 + n11) / (n00 + n01 + n10 + n11)
+
+        # LR test for independence
+        if p01 == 0 or p11 == 0 or p01 == 1 or p11 == 1 or p_unconditional == 0 or p_unconditional == 1:
+            lr_ind = 0
+        else:
+            lr_ind = -2 * (
+                n00 * np.log(1 - p_unconditional)
+                + n01 * np.log(p_unconditional)
+                + n10 * np.log(1 - p_unconditional)
+                + n11 * np.log(p_unconditional)
+                - n00 * np.log(1 - p01)
+                - n01 * np.log(p01)
+                - n10 * np.log(1 - p11)
+                - n11 * np.log(p11)
+            )
+
+        p_value = 1 - stats.chi2.cdf(lr_ind, df=1)
+
+        return {
+            "LR_independence": float(lr_ind),
+            "p_value": float(p_value),
+            "reject_independence": p_value < 0.05,
+            "p01": float(p01),
+            "p11": float(p11),
+            "violations_clustered": p11 > p01,
+        }
+
+    # ==================== CREDIT PORTFOLIO RISK ====================
+
+    @staticmethod
+    def credit_portfolio_var(
+        exposures: NDArray[np.float64],
+        pds: NDArray[np.float64],
+        lgds: NDArray[np.float64],
+        correlations: NDArray[np.float64],
+        confidence_level: float = 0.99,
+        n_simulations: int = 10000,
+    ) -> dict[str, Any]:
+        """Calculate Credit VaR for a portfolio using Monte Carlo.
+
+        Simulates correlated defaults using Gaussian copula.
+
+        Args:
+            exposures: Array of exposure amounts.
+            pds: Array of probabilities of default.
+            lgds: Array of loss given defaults.
+            correlations: Correlation matrix for defaults.
+            confidence_level: VaR confidence level.
+            n_simulations: Number of Monte Carlo simulations.
+
+        Returns:
+            Dictionary with Credit VaR results.
+        """
+        n_obligors = len(exposures)
+
+        # Cholesky decomposition for correlated normal variates
+        L = np.linalg.cholesky(correlations)
+
+        losses = np.zeros(n_simulations)
+
+        for sim in range(n_simulations):
+            # Generate correlated standard normal variates
+            z = np.random.standard_normal(n_obligors)
+            correlated_z = L @ z
+
+            # Default if correlated variate < inverse CDF of PD
+            default_thresholds = stats.norm.ppf(pds)
+            defaults = correlated_z < default_thresholds
+
+            # Calculate loss
+            losses[sim] = np.sum(exposures * defaults * lgds)
+
+        # Credit VaR
+        percentile = confidence_level * 100
+        credit_var = np.percentile(losses, percentile)
+        expected_loss = np.mean(losses)
+
+        return {
+            "credit_var": float(credit_var),
+            "expected_loss": float(expected_loss),
+            "unexpected_loss": float(credit_var - expected_loss),
+            "loss_std": float(np.std(losses)),
+            "confidence_level": confidence_level,
+        }
+
+    # ==================== STRESS TESTING FRAMEWORK ====================
+
+    @staticmethod
+    def historical_stress_scenarios() -> dict[str, dict[str, float]]:
+        """Return predefined historical stress scenarios.
+
+        Returns:
+            Dictionary of scenario names to asset class shocks.
+        """
+        return {
+            "COVID-19 Crash (Mar 2020)": {
+                "equity": -0.30,
+                "fixed_income": 0.05,
+                "commodities": -0.25,
+                "real_estate": -0.15,
+                "alternatives": -0.20,
+            },
+            "GFC (2008)": {
+                "equity": -0.50,
+                "fixed_income": 0.10,
+                "commodities": -0.40,
+                "real_estate": -0.35,
+                "alternatives": -0.30,
+            },
+            "Tech Bubble (2000)": {
+                "equity": -0.45,
+                "fixed_income": 0.15,
+                "commodities": -0.10,
+                "real_estate": -0.05,
+                "alternatives": -0.25,
+            },
+            "Interest Rate Shock (+200bp)": {
+                "equity": -0.10,
+                "fixed_income": -0.15,
+                "commodities": 0.05,
+                "real_estate": -0.12,
+                "alternatives": -0.08,
+            },
+            "Stagflation": {
+                "equity": -0.20,
+                "fixed_income": -0.08,
+                "commodities": 0.25,
+                "real_estate": -0.10,
+                "alternatives": -0.05,
+            },
+            "Currency Crisis": {
+                "equity": -0.25,
+                "fixed_income": -0.05,
+                "commodities": 0.15,
+                "real_estate": -0.15,
+                "alternatives": -0.10,
+            },
+        }
+
+    @staticmethod
+    def reverse_stress_test(
+        portfolio_value: float,
+        weights: NDArray[np.float64],
+        cov_matrix: NDArray[np.float64],
+        loss_threshold: float,
+        confidence_level: float = 0.99,
+    ) -> dict[str, Any]:
+        """Perform reverse stress testing.
+
+        Find the market conditions that would cause a specified loss.
+
+        Args:
+            portfolio_value: Current portfolio value.
+            weights: Asset weights.
+            cov_matrix: Covariance matrix.
+            loss_threshold: Loss amount to reverse engineer.
+            confidence_level: Confidence level.
+
+        Returns:
+            Dictionary with reverse stress test results.
+        """
+        portfolio_vol = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
+        z_score = stats.norm.ppf(confidence_level)
+
+        # Required return shock
+        required_shock = -loss_threshold / portfolio_value
+
+        # Standard deviations required
+        std_deviations = required_shock / portfolio_vol
+
+        # Probability of this scenario
+        probability = 1 - stats.norm.cdf(-std_deviations)
+
+        return {
+            "required_shock": float(required_shock),
+            "standard_deviations": float(std_deviations),
+            "probability": float(probability),
+            "return_period_years": float(1 / probability) if probability > 0 else float("inf"),
+        }
