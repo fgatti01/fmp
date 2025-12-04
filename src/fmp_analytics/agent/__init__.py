@@ -23,6 +23,13 @@ from fmp_analytics.agent.tools import (
     # Comprehensive analysis tools
     comprehensive_equity_analysis_tool,
     comprehensive_sector_analysis_tool,
+    # Advanced portfolio management tools (Norte Asset Quant Finance Guide)
+    risk_parity_portfolio_tool,
+    black_litterman_portfolio_tool,
+    kelly_criterion_tool,
+    monte_carlo_wealth_tool,
+    advanced_portfolio_optimization_tool,
+    glide_path_tool,
 )
 
 __all__ = [
@@ -48,4 +55,11 @@ __all__ = [
     # Comprehensive analysis tools
     "comprehensive_equity_analysis_tool",
     "comprehensive_sector_analysis_tool",
+    # Advanced portfolio management tools
+    "risk_parity_portfolio_tool",
+    "black_litterman_portfolio_tool",
+    "kelly_criterion_tool",
+    "monte_carlo_wealth_tool",
+    "advanced_portfolio_optimization_tool",
+    "glide_path_tool",
 ]

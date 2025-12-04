@@ -35,6 +35,13 @@ from fmp_analytics.agent.tools import (
     # Comprehensive analysis tools
     comprehensive_equity_analysis_tool,
     comprehensive_sector_analysis_tool,
+    # Advanced portfolio management tools (Norte Asset Quant Finance Guide)
+    risk_parity_portfolio_tool,
+    black_litterman_portfolio_tool,
+    kelly_criterion_tool,
+    monte_carlo_wealth_tool,
+    advanced_portfolio_optimization_tool,
+    glide_path_tool,
 )
 from fmp_analytics.config import get_settings
 
@@ -81,6 +88,16 @@ FINANCIAL_AGENT_INSTRUCTIONS = """You are an expert financial analyst with deep 
    - Buy/Sell/Hold recommendations based on complete analysis
    - Sector-wide screening for best investment opportunities
 
+7. **Advanced Portfolio Management (Norte Asset Quant Finance Guide):**
+   - Mean-Variance Optimization (Markowitz efficient frontier)
+   - Risk Parity portfolio allocation (equal risk contribution)
+   - Black-Litterman model with investor views
+   - Kelly Criterion position sizing (growth-optimal)
+   - Maximum Diversification portfolio
+   - Monte Carlo wealth simulation
+   - Lifecycle glide paths for retirement planning
+   - Compare multiple optimization methods side-by-side
+
 **Guidelines:**
 - Use the available tools to fetch real-time data and perform analysis
 - Provide clear, actionable insights backed by data
@@ -126,6 +143,16 @@ FINANCIAL_AGENT_INSTRUCTIONS = """You are an expert financial analyst with deep 
 3. Always compare current price to calculated fair values
 4. Combine fundamental and quantitative analysis
 5. Provide clear investment recommendation with reasoning
+
+**When optimizing portfolios:**
+1. Use advanced_portfolio_optimization_tool to compare all methods at once
+2. Use risk_parity_portfolio_tool for equal risk contribution allocation
+3. Use black_litterman_portfolio_tool when investor has specific views
+4. Use kelly_criterion_tool for position sizing (use half-Kelly for stability)
+5. Use monte_carlo_wealth_tool for retirement planning simulations
+6. Use glide_path_tool for lifecycle asset allocation recommendations
+7. Always explain the methodology and formulas used
+8. Consider investor's risk tolerance and time horizon
 
 Remember: Past performance does not guarantee future results. All analysis is for informational purposes only.
 """
@@ -179,6 +206,13 @@ class FinancialAgent:
                 # Comprehensive analysis tools
                 comprehensive_equity_analysis_tool,
                 comprehensive_sector_analysis_tool,
+                # Advanced portfolio management tools (Norte Asset Quant Guide)
+                risk_parity_portfolio_tool,
+                black_litterman_portfolio_tool,
+                kelly_criterion_tool,
+                monte_carlo_wealth_tool,
+                advanced_portfolio_optimization_tool,
+                glide_path_tool,
             ],
             show_tool_calls=debug,
             markdown=True,
