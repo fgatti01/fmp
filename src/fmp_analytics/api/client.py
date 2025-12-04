@@ -125,24 +125,26 @@ class FMPClient:
         """Async context manager exit."""
         await self.close()
 
-    def _build_url(self, endpoint: str, version: str = "v3") -> str:
+    def _build_url(self, endpoint: str, version: str = "stable") -> str:
         """Build full URL for an endpoint.
 
         Args:
             endpoint: API endpoint path.
-            version: API version (v3 or v4).
+            version: API version (stable, v3, or v4).
 
         Returns:
             Full URL string.
         """
         base = self.settings.fmp_base_url
+        if version == "stable":
+            return f"{base}/stable/{endpoint.lstrip('/')}"
         return f"{base}/api/{version}/{endpoint.lstrip('/')}"
 
     async def _request(
         self,
         method: str,
         endpoint: str,
-        version: str = "v3",
+        version: str = "stable",
         params: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> Any:
@@ -151,7 +153,7 @@ class FMPClient:
         Args:
             method: HTTP method.
             endpoint: API endpoint.
-            version: API version.
+            version: API version (stable, v3, or v4).
             params: Query parameters.
             **kwargs: Additional request arguments.
 
@@ -191,14 +193,14 @@ class FMPClient:
     async def get(
         self,
         endpoint: str,
-        version: str = "v3",
+        version: str = "stable",
         params: dict[str, Any] | None = None,
     ) -> Any:
         """Make a GET request.
 
         Args:
             endpoint: API endpoint.
-            version: API version.
+            version: API version (stable, v3, or v4).
             params: Query parameters.
 
         Returns:
@@ -206,12 +208,44 @@ class FMPClient:
         """
         return await self._request("GET", endpoint, version, params)
 
+    async def get_stable(
+        self,
+        endpoint: str,
+        params: dict[str, Any] | None = None,
+    ) -> Any:
+        """Make a GET request to stable API (recommended).
+
+        Args:
+            endpoint: API endpoint.
+            params: Query parameters.
+
+        Returns:
+            Parsed JSON response.
+        """
+        return await self._request("GET", endpoint, "stable", params)
+
+    async def get_v3(
+        self,
+        endpoint: str,
+        params: dict[str, Any] | None = None,
+    ) -> Any:
+        """Make a GET request to legacy v3 API.
+
+        Args:
+            endpoint: API endpoint.
+            params: Query parameters.
+
+        Returns:
+            Parsed JSON response.
+        """
+        return await self._request("GET", endpoint, "v3", params)
+
     async def get_v4(
         self,
         endpoint: str,
         params: dict[str, Any] | None = None,
     ) -> Any:
-        """Make a GET request to v4 API.
+        """Make a GET request to legacy v4 API.
 
         Args:
             endpoint: API endpoint.
