@@ -901,6 +901,281 @@ class CFAMetrics:
         """
         return float(stats.kurtosis(data))
 
+    # ==================== EDHEC RISK METRICS ====================
+
+    @staticmethod
+    def semideviation(returns: NDArray[np.float64]) -> float:
+        """Calculate semideviation (downside deviation).
+
+        Semideviation measures the volatility of returns below the mean,
+        providing a risk measure focused on negative outcomes.
+
+        Formula: sqrt(E[min(r - mean, 0)²])
+
+        Args:
+            returns: Array of returns.
+
+        Returns:
+            Semideviation (downside standard deviation).
+        """
+        mean_return = np.mean(returns)
+        negative_returns = returns[returns < mean_return]
+        if len(negative_returns) == 0:
+            return 0.0
+        return float(np.std(negative_returns, ddof=1))
+
+    @staticmethod
+    def downside_deviation(
+        returns: NDArray[np.float64],
+        threshold: float = 0.0,
+    ) -> float:
+        """Calculate downside deviation relative to a threshold.
+
+        Also known as Target Downside Deviation or Lower Partial Moment.
+
+        Formula: sqrt(E[min(r - threshold, 0)²])
+
+        Args:
+            returns: Array of returns.
+            threshold: Minimum acceptable return (MAR). Default: 0.
+
+        Returns:
+            Downside deviation.
+        """
+        below_threshold = returns - threshold
+        below_threshold = below_threshold[below_threshold < 0]
+        if len(below_threshold) == 0:
+            return 0.0
+        return float(np.sqrt(np.mean(below_threshold**2)))
+
+    @staticmethod
+    def cornish_fisher_var(
+        returns: NDArray[np.float64],
+        confidence_level: float = 0.95,
+    ) -> dict[str, Any]:
+        """Calculate Cornish-Fisher adjusted VaR.
+
+        The Cornish-Fisher expansion adjusts the normal distribution z-score
+        for skewness and kurtosis, providing more accurate VaR for non-normal
+        distributions.
+
+        Formula:
+            z_cf = z + (z² - 1)S/6 + (z³ - 3z)(K - 3)/24 - (2z³ - 5z)S²/36
+
+        Where:
+            z = standard normal z-score
+            S = skewness
+            K = kurtosis
+
+        Args:
+            returns: Array of returns.
+            confidence_level: Confidence level (e.g., 0.95 for 95% VaR).
+
+        Returns:
+            Dictionary with:
+                - gaussian_var: Standard parametric VaR
+                - cornish_fisher_var: Adjusted VaR for non-normality
+                - z_score: Normal z-score
+                - z_cf: Adjusted z-score
+                - skewness: Sample skewness
+                - kurtosis: Sample excess kurtosis
+                - adjustment: Difference between CF and Gaussian VaR
+        """
+        mean = np.mean(returns)
+        std = np.std(returns, ddof=1)
+        skew = stats.skew(returns)
+        kurt = stats.kurtosis(returns)  # Excess kurtosis
+
+        # Standard normal z-score
+        z = stats.norm.ppf(1 - confidence_level)
+
+        # Cornish-Fisher expansion
+        z_cf = (
+            z
+            + (z**2 - 1) * skew / 6
+            + (z**3 - 3 * z) * kurt / 24
+            - (2 * z**3 - 5 * z) * skew**2 / 36
+        )
+
+        # Calculate VaR values
+        gaussian_var = -(mean + z * std)
+        cornish_fisher_var = -(mean + z_cf * std)
+
+        return {
+            "gaussian_var": float(gaussian_var),
+            "cornish_fisher_var": float(cornish_fisher_var),
+            "z_score": float(z),
+            "z_cf": float(z_cf),
+            "skewness": float(skew),
+            "kurtosis": float(kurt),
+            "adjustment": float(cornish_fisher_var - gaussian_var),
+            "confidence_level": confidence_level,
+        }
+
+    @staticmethod
+    def jarque_bera_test(
+        returns: NDArray[np.float64],
+        significance_level: float = 0.01,
+    ) -> dict[str, Any]:
+        """Perform Jarque-Bera test for normality.
+
+        The JB test uses skewness and kurtosis to test whether returns
+        come from a normal distribution.
+
+        Formula: JB = (n/6) × [S² + (K²/4)]
+
+        Where:
+            n = sample size
+            S = skewness
+            K = excess kurtosis
+
+        Args:
+            returns: Array of returns.
+            significance_level: Significance level for the test.
+
+        Returns:
+            Dictionary with:
+                - statistic: JB test statistic
+                - p_value: p-value of the test
+                - is_normal: True if we cannot reject normality
+                - skewness: Sample skewness
+                - kurtosis: Sample excess kurtosis
+        """
+        statistic, p_value = stats.jarque_bera(returns)
+        skew = stats.skew(returns)
+        kurt = stats.kurtosis(returns)
+
+        return {
+            "statistic": float(statistic),
+            "p_value": float(p_value),
+            "is_normal": p_value > significance_level,
+            "skewness": float(skew),
+            "kurtosis": float(kurt),
+            "significance_level": significance_level,
+            "interpretation": (
+                "Cannot reject normality" if p_value > significance_level
+                else "Reject normality (returns are non-normal)"
+            ),
+        }
+
+    @staticmethod
+    def comprehensive_drawdown(
+        returns: NDArray[np.float64],
+    ) -> dict[str, Any]:
+        """Calculate comprehensive drawdown statistics.
+
+        Provides wealth index, drawdown series, and key drawdown metrics.
+
+        Args:
+            returns: Array of returns.
+
+        Returns:
+            Dictionary with:
+                - wealth_index: Cumulative wealth (starting at 1)
+                - previous_peak: Running maximum wealth
+                - drawdown: Percentage drawdown from peak
+                - max_drawdown: Maximum drawdown
+                - max_drawdown_start: Index where max drawdown started
+                - max_drawdown_end: Index where max drawdown ended
+                - avg_drawdown: Average drawdown
+                - drawdown_duration: Length of max drawdown period
+                - current_drawdown: Current drawdown from peak
+                - recovery_time: Periods to recover from max drawdown (None if not recovered)
+        """
+        # Calculate wealth index
+        wealth_index = np.cumprod(1 + returns)
+        previous_peak = np.maximum.accumulate(wealth_index)
+        drawdown = (wealth_index - previous_peak) / previous_peak
+
+        # Find max drawdown
+        max_dd = float(np.min(drawdown))
+        max_dd_end_idx = int(np.argmin(drawdown))
+
+        # Find start of max drawdown (last peak before max dd)
+        wealth_at_max_dd_end = wealth_index[max_dd_end_idx]
+        peak_before_max_dd = previous_peak[max_dd_end_idx]
+
+        # Find where this peak occurred
+        max_dd_start_idx = int(np.where(wealth_index[:max_dd_end_idx + 1] == peak_before_max_dd)[0][-1])
+
+        # Find recovery time (when wealth returns to previous peak)
+        recovery_time = None
+        if max_dd_end_idx < len(wealth_index) - 1:
+            post_trough = wealth_index[max_dd_end_idx:]
+            recovered_idx = np.where(post_trough >= peak_before_max_dd)[0]
+            if len(recovered_idx) > 0:
+                recovery_time = int(recovered_idx[0])
+
+        return {
+            "wealth_index": wealth_index.tolist(),
+            "previous_peak": previous_peak.tolist(),
+            "drawdown": drawdown.tolist(),
+            "max_drawdown": max_dd,
+            "max_drawdown_start": max_dd_start_idx,
+            "max_drawdown_end": max_dd_end_idx,
+            "avg_drawdown": float(np.mean(drawdown[drawdown < 0])) if np.any(drawdown < 0) else 0.0,
+            "drawdown_duration": max_dd_end_idx - max_dd_start_idx,
+            "current_drawdown": float(drawdown[-1]),
+            "recovery_time": recovery_time,
+        }
+
+    @staticmethod
+    def summary_stats(
+        returns: NDArray[np.float64],
+        risk_free_rate: float = 0.0,
+        periods_per_year: int = 252,
+    ) -> dict[str, Any]:
+        """Calculate comprehensive summary statistics (EDHEC-style).
+
+        Provides all key risk and return metrics in a single function.
+
+        Args:
+            returns: Array of returns.
+            risk_free_rate: Annual risk-free rate.
+            periods_per_year: Trading periods per year (252 for daily).
+
+        Returns:
+            Dictionary with comprehensive statistics.
+        """
+        # Annualize returns and volatility
+        ann_return = CFAMetrics.annualized_return(returns, periods_per_year)
+        ann_vol = CFAMetrics.annualized_volatility(returns, periods_per_year)
+
+        # Risk metrics
+        skew = float(stats.skew(returns))
+        kurt = float(stats.kurtosis(returns))
+
+        # Period risk-free rate
+        rf_per_period = (1 + risk_free_rate) ** (1 / periods_per_year) - 1
+        excess_returns = returns - rf_per_period
+
+        # Sharpe ratio
+        sharpe = (ann_return - risk_free_rate) / ann_vol if ann_vol > 0 else 0.0
+
+        # Cornish-Fisher VaR
+        cf_var = CFAMetrics.cornish_fisher_var(returns, 0.95)
+
+        # CVaR
+        var_threshold = np.percentile(returns, 5)
+        cvar = float(np.mean(returns[returns <= var_threshold]))
+
+        # Max Drawdown
+        max_dd = CFAMetrics.max_drawdown(returns)
+
+        return {
+            "annualized_return": ann_return,
+            "annualized_volatility": ann_vol,
+            "sharpe_ratio": sharpe,
+            "skewness": skew,
+            "kurtosis": kurt,
+            "historic_var_5": float(np.percentile(returns, 5)),
+            "cornish_fisher_var_5": cf_var["cornish_fisher_var"],
+            "historic_cvar_5": cvar,
+            "max_drawdown": max_dd,
+            "semideviation": CFAMetrics.semideviation(returns),
+            "is_normal": CFAMetrics.jarque_bera_test(returns)["is_normal"],
+        }
+
     @staticmethod
     def geometric_mean_return(returns: NDArray[np.float64]) -> float:
         """Calculate geometric mean return.
