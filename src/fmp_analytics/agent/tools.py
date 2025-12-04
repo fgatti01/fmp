@@ -1766,121 +1766,344 @@ def comprehensive_equity_analysis_tool(
 
     # ===== VALUATION ANALYSIS =====
     result += "## 3. Valuation Analysis (Fair Value Calculation)\n\n"
+    result += "This section calculates fair value using multiple methodologies, showing the complete logic and calculations for each approach.\n\n"
 
     fair_values = {}
-    shares_outstanding = profile.get("volAvg", 0) or 1  # Will use proper calculation
+
+    # Calculate shares outstanding from market cap
+    mkt_cap = profile.get("mktCap", 0)
+    shares_outstanding = mkt_cap / current_price if current_price and mkt_cap else 0
 
     # Method 1: FMP DCF Value
     if dcf_data:
         dcf_value = dcf_data.get("dcf", 0)
+        stock_price = dcf_data.get("Stock Price", current_price)
         fair_values["DCF (FMP)"] = dcf_value
-        result += f"### 3.1 DCF Valuation (FMP Calculated)\n"
-        result += f"- **DCF Fair Value: ${dcf_value:.2f}**\n"
-        result += f"- Current Price: ${current_price:.2f}\n"
-        upside = ((dcf_value / current_price) - 1) * 100 if current_price else 0
-        result += f"- Implied Upside: {upside:+.1f}%\n\n"
 
-    # Method 2: Graham Number
+        result += "### 3.1 Discounted Cash Flow (DCF) Valuation\n\n"
+        result += "**Methodology:** DCF values a company based on the present value of its expected future cash flows.\n\n"
+        result += "**Formula:**\n"
+        result += "```\n"
+        result += "Intrinsic Value = Σ (FCFt / (1 + WACC)^t) + Terminal Value / (1 + WACC)^n\n"
+        result += "```\n\n"
+        result += "**FMP Calculated DCF:**\n"
+        result += f"- DCF Fair Value: **${dcf_value:.2f}**\n"
+        result += f"- Current Market Price: ${current_price:.2f}\n"
+        upside = ((dcf_value / current_price) - 1) * 100 if current_price else 0
+        result += f"- Implied Upside/Downside: **{upside:+.1f}%**\n\n"
+
+        result += "**Interpretation:**\n"
+        if upside > 20:
+            result += f"- The DCF model suggests the stock is **significantly undervalued** by {upside:.0f}%\n"
+            result += "- The market may be underestimating future cash flow potential\n"
+        elif upside > 0:
+            result += f"- The DCF model suggests the stock is **modestly undervalued** by {upside:.0f}%\n"
+        elif upside > -20:
+            result += f"- The DCF model suggests the stock is **fairly valued** or slightly overvalued\n"
+        else:
+            result += f"- The DCF model suggests the stock is **overvalued** by {abs(upside):.0f}%\n"
+        result += "\n"
+
+    # Method 2: Graham Number (Detailed)
     if balance_sheet and income_stmt:
         latest_bs = balance_sheet[0]
         latest_income = income_stmt[0]
         eps = latest_income.get("eps", 0) or 0
-        book_value_per_share = latest_bs.get("totalStockholdersEquity", 0) / (profile.get("volAvg", 1) or 1)
+        total_equity = latest_bs.get("totalStockholdersEquity", 0)
 
-        # Graham Number = sqrt(22.5 * EPS * Book Value)
+        # Calculate book value per share properly
+        if shares_outstanding > 0:
+            book_value_per_share = total_equity / shares_outstanding
+        else:
+            book_value_per_share = 0
+
+        result += "### 3.2 Graham Number (Value Investing)\n\n"
+        result += "**Methodology:** Developed by Benjamin Graham, the father of value investing. It calculates the maximum price a defensive investor should pay for a stock.\n\n"
+        result += "**Formula:**\n"
+        result += "```\n"
+        result += "Graham Number = √(22.5 × EPS × Book Value Per Share)\n"
+        result += "```\n\n"
+        result += "**Where:**\n"
+        result += "- 22.5 = Graham's constant (derived from P/E of 15 × P/B of 1.5)\n"
+        result += "- EPS = Earnings Per Share (trailing twelve months)\n"
+        result += "- BVPS = Total Shareholders' Equity / Shares Outstanding\n\n"
+
+        result += "**Step-by-Step Calculation:**\n"
+        result += f"1. **EPS (Earnings Per Share):** ${eps:.2f}\n"
+        result += f"   - Net Income: ${latest_income.get('netIncome', 0):,.0f}\n"
+        result += f"   - Shares Outstanding: {shares_outstanding:,.0f}\n\n"
+
+        result += f"2. **Book Value Per Share:** ${book_value_per_share:.2f}\n"
+        result += f"   - Total Shareholders' Equity: ${total_equity:,.0f}\n"
+        result += f"   - Shares Outstanding: {shares_outstanding:,.0f}\n"
+        result += f"   - BVPS = ${total_equity:,.0f} / {shares_outstanding:,.0f} = ${book_value_per_share:.2f}\n\n"
+
         if eps > 0 and book_value_per_share > 0:
             graham_number = (22.5 * eps * book_value_per_share) ** 0.5
             fair_values["Graham Number"] = graham_number
-            result += f"### 3.2 Graham Number (Value Investing)\n"
-            result += f"- EPS: ${eps:.2f}\n"
-            result += f"- Book Value/Share: ${book_value_per_share:.2f}\n"
-            result += f"- **Graham Number: ${graham_number:.2f}**\n"
+
+            result += f"3. **Graham Number Calculation:**\n"
+            result += f"   - Graham Number = √(22.5 × ${eps:.2f} × ${book_value_per_share:.2f})\n"
+            result += f"   - Graham Number = √({22.5 * eps * book_value_per_share:,.2f})\n"
+            result += f"   - **Graham Number = ${graham_number:.2f}**\n\n"
+
             upside = ((graham_number / current_price) - 1) * 100 if current_price else 0
-            result += f"- Implied Upside: {upside:+.1f}%\n\n"
+            result += f"**Result:**\n"
+            result += f"- Graham Fair Value: **${graham_number:.2f}**\n"
+            result += f"- Current Price: ${current_price:.2f}\n"
+            result += f"- Implied Upside/Downside: **{upside:+.1f}%**\n\n"
 
-    # Method 3: Relative Valuation (Peer Comparison)
+            result += "**Interpretation:**\n"
+            if current_price < graham_number:
+                result += f"- Current price is **below** the Graham Number, suggesting a margin of safety\n"
+                result += f"- Graham would consider this potentially attractive for value investors\n"
+            else:
+                result += f"- Current price is **above** the Graham Number\n"
+                result += f"- Graham would suggest waiting for a lower entry point\n"
+            result += "\n"
+        else:
+            result += "- *Cannot calculate Graham Number: EPS or Book Value is negative/zero*\n\n"
+
+    # Method 3: Relative Valuation (Peer Comparison) - Detailed
     if peer_quotes and not ratios_df.empty:
-        result += f"### 3.3 Relative Valuation (Peer Comparison)\n\n"
+        result += "### 3.3 Relative Valuation (Peer P/E Comparison)\n\n"
+        result += "**Methodology:** Compare the company's valuation multiples to sector peers to determine if it's trading at a premium or discount.\n\n"
+        result += "**Formula:**\n"
+        result += "```\n"
+        result += "Fair Value = Company EPS × Sector Average P/E\n"
+        result += "```\n\n"
 
-        peer_pes = [q.pe for q in peer_quotes if q.pe and q.pe > 0 and q.pe < 100]
-        if peer_pes:
+        peer_data = [(q.symbol, q.pe, q.price) for q in peer_quotes if q.pe and q.pe > 0 and q.pe < 100]
+
+        if peer_data:
+            result += "**Peer P/E Ratios:**\n"
+            result += "| Peer | P/E Ratio | Price |\n"
+            result += "|------|-----------|-------|\n"
+            for sym, pe, price in sorted(peer_data, key=lambda x: x[1])[:10]:
+                result += f"| {sym} | {pe:.1f}x | ${price:.2f} |\n"
+            result += "\n"
+
+            peer_pes = [p[1] for p in peer_data]
             avg_peer_pe = sum(peer_pes) / len(peer_pes)
             median_peer_pe = sorted(peer_pes)[len(peer_pes)//2]
+            min_peer_pe = min(peer_pes)
+            max_peer_pe = max(peer_pes)
 
             eps = income_stmt[0].get("eps", 0) if income_stmt else 0
+            company_pe = current_price / eps if eps > 0 else 0
+
+            result += "**Peer Statistics:**\n"
+            result += f"- Minimum P/E: {min_peer_pe:.1f}x\n"
+            result += f"- Average P/E: {avg_peer_pe:.1f}x\n"
+            result += f"- Median P/E: {median_peer_pe:.1f}x\n"
+            result += f"- Maximum P/E: {max_peer_pe:.1f}x\n\n"
+
+            result += f"**Company's Current P/E:** {company_pe:.1f}x\n\n"
+
             if eps > 0:
                 fair_value_avg_pe = eps * avg_peer_pe
                 fair_value_median_pe = eps * median_peer_pe
                 fair_values["Peer Avg P/E"] = fair_value_avg_pe
                 fair_values["Peer Median P/E"] = fair_value_median_pe
 
-                result += f"- Sector Average P/E: {avg_peer_pe:.1f}x\n"
-                result += f"- Sector Median P/E: {median_peer_pe:.1f}x\n"
-                result += f"- Company EPS: ${eps:.2f}\n"
-                result += f"- **Fair Value (Avg P/E): ${fair_value_avg_pe:.2f}**\n"
-                result += f"- **Fair Value (Median P/E): ${fair_value_median_pe:.2f}**\n\n"
+                result += "**Step-by-Step Calculation:**\n"
+                result += f"1. Company EPS: ${eps:.2f}\n"
+                result += f"2. Sector Average P/E: {avg_peer_pe:.1f}x\n"
+                result += f"3. Sector Median P/E: {median_peer_pe:.1f}x\n\n"
 
-    # Method 4: Custom DCF (if FCF available)
-    if cash_flow:
+                result += f"**Fair Value (Average P/E):**\n"
+                result += f"- Fair Value = ${eps:.2f} × {avg_peer_pe:.1f} = **${fair_value_avg_pe:.2f}**\n"
+                upside_avg = ((fair_value_avg_pe / current_price) - 1) * 100 if current_price else 0
+                result += f"- Implied Upside/Downside: **{upside_avg:+.1f}%**\n\n"
+
+                result += f"**Fair Value (Median P/E):**\n"
+                result += f"- Fair Value = ${eps:.2f} × {median_peer_pe:.1f} = **${fair_value_median_pe:.2f}**\n"
+                upside_median = ((fair_value_median_pe / current_price) - 1) * 100 if current_price else 0
+                result += f"- Implied Upside/Downside: **{upside_median:+.1f}%**\n\n"
+
+                result += "**Interpretation:**\n"
+                if company_pe < avg_peer_pe:
+                    discount = ((avg_peer_pe - company_pe) / avg_peer_pe) * 100
+                    result += f"- Stock is trading at a **{discount:.0f}% discount** to sector average\n"
+                    result += "- May indicate undervaluation or company-specific concerns\n"
+                else:
+                    premium = ((company_pe - avg_peer_pe) / avg_peer_pe) * 100
+                    result += f"- Stock is trading at a **{premium:.0f}% premium** to sector average\n"
+                    result += "- Premium may be justified by superior growth or quality\n"
+                result += "\n"
+
+    # Method 4: Custom DCF Model (Detailed)
+    if cash_flow and balance_sheet:
         fcf = cash_flow[0].get("freeCashFlow", 0)
-        if fcf > 0:
-            # 5-year growth rate, 2% terminal, 10% discount
-            growth_rate = 0.10  # Assume 10% growth
-            terminal_growth = 0.025
-            discount_rate = 0.10
 
-            # Project 5 years of FCF
+        if fcf > 0 and shares_outstanding > 0:
+            result += "### 3.4 Custom DCF Model (5-Year Projection)\n\n"
+            result += "**Methodology:** Project future free cash flows, discount to present value, add terminal value.\n\n"
+            result += "**Formula:**\n"
+            result += "```\n"
+            result += "Enterprise Value = Σ (FCF × (1+g)^t / (1+r)^t) + Terminal Value\n"
+            result += "Equity Value = Enterprise Value - Net Debt + Cash\n"
+            result += "Fair Value Per Share = Equity Value / Shares Outstanding\n"
+            result += "```\n\n"
+
+            # Assumptions
+            growth_rate = 0.10  # 10% growth
+            terminal_growth = 0.025  # 2.5% terminal
+            discount_rate = 0.10  # 10% WACC
+
+            result += "**Assumptions:**\n"
+            result += f"- Latest Free Cash Flow (FCF): ${fcf:,.0f}\n"
+            result += f"- FCF Growth Rate (Years 1-5): {growth_rate*100:.0f}% annually\n"
+            result += f"- Terminal Growth Rate: {terminal_growth*100:.1f}% (perpetuity)\n"
+            result += f"- Discount Rate (WACC): {discount_rate*100:.0f}%\n\n"
+
+            # Calculate projected FCFs
+            result += "**Step 1: Project Future Cash Flows**\n"
+            result += "| Year | FCF | Discount Factor | Present Value |\n"
+            result += "|------|-----|-----------------|---------------|\n"
+
             projected_fcfs = []
+            pv_fcfs = []
             for year in range(1, 6):
                 projected_fcf = fcf * ((1 + growth_rate) ** year)
-                discounted = projected_fcf / ((1 + discount_rate) ** year)
-                projected_fcfs.append(discounted)
+                discount_factor = 1 / ((1 + discount_rate) ** year)
+                pv = projected_fcf * discount_factor
+                projected_fcfs.append(projected_fcf)
+                pv_fcfs.append(pv)
+                result += f"| {year} | ${projected_fcf:,.0f} | {discount_factor:.4f} | ${pv:,.0f} |\n"
 
-            # Terminal value
+            sum_pv_fcf = sum(pv_fcfs)
+            result += f"| **Total** | | | **${sum_pv_fcf:,.0f}** |\n\n"
+
+            # Terminal Value
+            result += "**Step 2: Calculate Terminal Value**\n"
             terminal_fcf = projected_fcfs[-1] * (1 + terminal_growth)
             terminal_value = terminal_fcf / (discount_rate - terminal_growth)
-            discounted_terminal = terminal_value / ((1 + discount_rate) ** 5)
+            discount_factor_5 = 1 / ((1 + discount_rate) ** 5)
+            pv_terminal = terminal_value * discount_factor_5
 
-            enterprise_value = sum(projected_fcfs) + discounted_terminal
-            equity_value = enterprise_value - (balance_sheet[0].get("totalDebt", 0) if balance_sheet else 0) + (balance_sheet[0].get("cashAndCashEquivalents", 0) if balance_sheet else 0)
+            result += f"- Year 5 FCF: ${projected_fcfs[-1]:,.0f}\n"
+            result += f"- Terminal FCF (Year 6): ${projected_fcfs[-1]:,.0f} × (1 + {terminal_growth*100:.1f}%) = ${terminal_fcf:,.0f}\n"
+            result += f"- Terminal Value = ${terminal_fcf:,.0f} / ({discount_rate*100:.0f}% - {terminal_growth*100:.1f}%) = ${terminal_value:,.0f}\n"
+            result += f"- PV of Terminal Value = ${terminal_value:,.0f} × {discount_factor_5:.4f} = ${pv_terminal:,.0f}\n\n"
 
-            shares = profile.get("volAvg", 0) or 1  # Approximation
-            if shares and equity_value > 0:
-                fair_value_dcf = equity_value / (shares / quote.get("avgVolume", 1) * quote.get("sharesOutstanding", shares) if quote.get("sharesOutstanding") else shares)
-                # Use market cap based calculation
-                mkt_cap = profile.get("mktCap", 0)
-                if mkt_cap and current_price:
-                    shares_out = mkt_cap / current_price
-                    fair_value_dcf = equity_value / shares_out
-                    fair_values["Custom DCF"] = fair_value_dcf
+            # Enterprise Value
+            result += "**Step 3: Calculate Enterprise Value**\n"
+            enterprise_value = sum_pv_fcf + pv_terminal
+            result += f"- PV of FCFs (Years 1-5): ${sum_pv_fcf:,.0f}\n"
+            result += f"- PV of Terminal Value: ${pv_terminal:,.0f}\n"
+            result += f"- **Enterprise Value: ${enterprise_value:,.0f}**\n\n"
 
-                    result += f"### 3.4 Custom DCF Model\n"
-                    result += f"- Latest FCF: ${fcf:,.0f}\n"
-                    result += f"- Growth Rate: {growth_rate*100:.0f}%\n"
-                    result += f"- Terminal Growth: {terminal_growth*100:.1f}%\n"
-                    result += f"- Discount Rate: {discount_rate*100:.0f}%\n"
-                    result += f"- Enterprise Value: ${enterprise_value:,.0f}\n"
-                    result += f"- **Fair Value/Share: ${fair_value_dcf:.2f}**\n\n"
+            # Equity Value
+            result += "**Step 4: Calculate Equity Value**\n"
+            total_debt = balance_sheet[0].get("totalDebt", 0) if balance_sheet else 0
+            cash = balance_sheet[0].get("cashAndCashEquivalents", 0) if balance_sheet else 0
+            equity_value = enterprise_value - total_debt + cash
+
+            result += f"- Enterprise Value: ${enterprise_value:,.0f}\n"
+            result += f"- Less: Total Debt: (${total_debt:,.0f})\n"
+            result += f"- Plus: Cash & Equivalents: ${cash:,.0f}\n"
+            result += f"- **Equity Value: ${equity_value:,.0f}**\n\n"
+
+            # Fair Value Per Share
+            result += "**Step 5: Calculate Fair Value Per Share**\n"
+            fair_value_dcf = equity_value / shares_outstanding
+            fair_values["Custom DCF"] = fair_value_dcf
+
+            result += f"- Equity Value: ${equity_value:,.0f}\n"
+            result += f"- Shares Outstanding: {shares_outstanding:,.0f}\n"
+            result += f"- **Fair Value Per Share: ${equity_value:,.0f} / {shares_outstanding:,.0f} = ${fair_value_dcf:.2f}**\n\n"
+
+            upside = ((fair_value_dcf / current_price) - 1) * 100 if current_price else 0
+            result += f"**Result:**\n"
+            result += f"- DCF Fair Value: **${fair_value_dcf:.2f}**\n"
+            result += f"- Current Price: ${current_price:.2f}\n"
+            result += f"- Implied Upside/Downside: **{upside:+.1f}%**\n\n"
+
+            result += "**Sensitivity Note:** DCF is sensitive to assumptions. A 1% change in:\n"
+            result += "- Growth rate changes fair value by ~5-10%\n"
+            result += "- Discount rate changes fair value by ~10-15%\n\n"
+
+    # Method 5: Earnings Power Value (EPV)
+    if income_stmt and not ratios_df.empty:
+        result += "### 3.5 Earnings Power Value (EPV)\n\n"
+        result += "**Methodology:** Values the company based on its current normalized earnings, assuming no growth.\n\n"
+        result += "**Formula:**\n"
+        result += "```\n"
+        result += "EPV = Adjusted Earnings / Cost of Capital\n"
+        result += "```\n\n"
+
+        operating_income = income_stmt[0].get("operatingIncome", 0)
+        tax_rate = 0.25  # Assume 25% tax rate
+        adjusted_earnings = operating_income * (1 - tax_rate)
+        cost_of_capital = 0.10  # 10% WACC
+
+        result += "**Calculation:**\n"
+        result += f"1. Operating Income (EBIT): ${operating_income:,.0f}\n"
+        result += f"2. Tax Rate (assumed): {tax_rate*100:.0f}%\n"
+        result += f"3. After-Tax Earnings: ${operating_income:,.0f} × (1 - {tax_rate*100:.0f}%) = ${adjusted_earnings:,.0f}\n"
+        result += f"4. Cost of Capital (WACC): {cost_of_capital*100:.0f}%\n\n"
+
+        if adjusted_earnings > 0:
+            epv_enterprise = adjusted_earnings / cost_of_capital
+            total_debt = balance_sheet[0].get("totalDebt", 0) if balance_sheet else 0
+            cash = balance_sheet[0].get("cashAndCashEquivalents", 0) if balance_sheet else 0
+            epv_equity = epv_enterprise - total_debt + cash
+
+            result += f"5. EPV (Enterprise): ${adjusted_earnings:,.0f} / {cost_of_capital*100:.0f}% = ${epv_enterprise:,.0f}\n"
+            result += f"6. Less Debt, Plus Cash: ${epv_enterprise:,.0f} - ${total_debt:,.0f} + ${cash:,.0f} = ${epv_equity:,.0f}\n"
+
+            if shares_outstanding > 0:
+                epv_per_share = epv_equity / shares_outstanding
+                fair_values["EPV"] = epv_per_share
+                upside = ((epv_per_share / current_price) - 1) * 100 if current_price else 0
+
+                result += f"7. **EPV Per Share: ${epv_equity:,.0f} / {shares_outstanding:,.0f} = ${epv_per_share:.2f}**\n\n"
+                result += f"**Result:** EPV Fair Value = **${epv_per_share:.2f}** ({upside:+.1f}% vs current)\n\n"
 
     # Fair Value Summary
-    result += "### 3.5 Fair Value Summary\n\n"
-    result += "| Method | Fair Value | vs Current | Status |\n"
-    result += "|--------|------------|------------|--------|\n"
+    result += "### 3.6 Fair Value Summary\n\n"
+    result += "| Method | Fair Value | vs Current Price | Assessment |\n"
+    result += "|--------|------------|------------------|------------|\n"
 
     for method, fv in fair_values.items():
         diff = ((fv / current_price) - 1) * 100 if current_price else 0
-        if diff > 15:
-            status = "🟢 UNDERVALUED"
-        elif diff < -15:
-            status = "🔴 OVERVALUED"
+        if diff > 20:
+            status = "🟢 Significantly Undervalued"
+        elif diff > 5:
+            status = "🟢 Undervalued"
+        elif diff > -5:
+            status = "🟡 Fairly Valued"
+        elif diff > -20:
+            status = "🟠 Overvalued"
         else:
-            status = "🟡 FAIR VALUE"
+            status = "🔴 Significantly Overvalued"
         result += f"| {method} | ${fv:.2f} | {diff:+.1f}% | {status} |\n"
 
     if fair_values:
         avg_fair_value = sum(fair_values.values()) / len(fair_values)
+        min_fair_value = min(fair_values.values())
+        max_fair_value = max(fair_values.values())
         avg_diff = ((avg_fair_value / current_price) - 1) * 100 if current_price else 0
-        result += f"\n**Average Fair Value: ${avg_fair_value:.2f}** ({avg_diff:+.1f}% vs current)\n\n"
+
+        result += f"\n**Valuation Range:**\n"
+        result += f"- Low Estimate: ${min_fair_value:.2f}\n"
+        result += f"- Average Estimate: **${avg_fair_value:.2f}**\n"
+        result += f"- High Estimate: ${max_fair_value:.2f}\n"
+        result += f"- Current Price: ${current_price:.2f}\n"
+        result += f"- Average Implied Upside/Downside: **{avg_diff:+.1f}%**\n\n"
+
+        result += "**Valuation Conclusion:**\n"
+        methods_above = sum(1 for fv in fair_values.values() if fv > current_price)
+        methods_below = len(fair_values) - methods_above
+
+        if methods_above > methods_below:
+            result += f"- {methods_above} of {len(fair_values)} valuation methods suggest the stock is **undervalued**\n"
+        elif methods_below > methods_above:
+            result += f"- {methods_below} of {len(fair_values)} valuation methods suggest the stock is **overvalued**\n"
+        else:
+            result += f"- Valuation methods are split, suggesting stock is **fairly valued**\n"
+        result += "\n"
 
     # ===== QUANTITATIVE ANALYSIS =====
     result += "## 4. Quantitative Analysis\n\n"
