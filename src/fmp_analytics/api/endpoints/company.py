@@ -298,3 +298,84 @@ class CompanyInfoAPI(BaseAPI):
         if exchange:
             params["exchange"] = exchange
         return await self._client.get("search-ticker", params=params)
+
+    # ==================== NEWS ENDPOINTS ====================
+
+    async def get_stock_news(
+        self,
+        symbol: str | None = None,
+        limit: int = 50,
+        from_date: str | None = None,
+        to_date: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Get stock news articles.
+
+        Args:
+            symbol: Stock symbol (optional for general news).
+            limit: Number of articles.
+            from_date: Start date (YYYY-MM-DD).
+            to_date: End date (YYYY-MM-DD).
+
+        Returns:
+            List of news articles with title, text, url, publishedDate, sentiment.
+        """
+        params: dict[str, Any] = {"limit": limit}
+        if symbol:
+            params["tickers"] = symbol.upper()
+        if from_date:
+            params["from"] = from_date
+        if to_date:
+            params["to"] = to_date
+        return await self._client.get("stock_news", params=params)
+
+    async def get_general_news(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Get general market news.
+
+        Args:
+            limit: Number of articles.
+
+        Returns:
+            List of general news articles.
+        """
+        return await self._client.get_v4("general_news", params={"limit": limit})
+
+    async def get_forex_news(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Get forex market news.
+
+        Args:
+            limit: Number of articles.
+
+        Returns:
+            List of forex news articles.
+        """
+        return await self._client.get_v4("forex_news", params={"limit": limit})
+
+    async def get_crypto_news(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Get cryptocurrency news.
+
+        Args:
+            limit: Number of articles.
+
+        Returns:
+            List of crypto news articles.
+        """
+        return await self._client.get_v4("crypto_news", params={"limit": limit})
+
+    async def get_stock_news_sentiment(
+        self,
+        symbol: str,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Get stock news with sentiment analysis.
+
+        Args:
+            symbol: Stock symbol.
+            limit: Number of articles.
+
+        Returns:
+            News articles with sentiment scores.
+        """
+        return await self._client.get_v4(
+            "stock-news-sentiments-rss-feed",
+            params={"symbol": symbol.upper(), "limit": limit},
+        )

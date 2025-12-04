@@ -42,6 +42,11 @@ from fmp_analytics.agent.tools import (
     monte_carlo_wealth_tool,
     advanced_portfolio_optimization_tool,
     glide_path_tool,
+    # News analysis tools
+    get_stock_news_tool,
+    analyze_earnings_news_impact_tool,
+    earnings_calendar_news_tool,
+    news_sentiment_analysis_tool,
 )
 from fmp_analytics.config import get_settings
 
@@ -98,6 +103,13 @@ FINANCIAL_AGENT_INSTRUCTIONS = """You are an expert financial analyst with deep 
    - Lifecycle glide paths for retirement planning
    - Compare multiple optimization methods side-by-side
 
+8. **News & Earnings Impact Analysis:**
+   - Analyze stock news and sentiment trends
+   - Evaluate earnings events and their price impact
+   - Determine if price movements were news-driven or technical
+   - Track upcoming earnings calendar
+   - Identify patterns in earnings reactions (beat & sell, miss & rally)
+
 **Guidelines:**
 - Use the available tools to fetch real-time data and perform analysis
 - Provide clear, actionable insights backed by data
@@ -153,6 +165,19 @@ FINANCIAL_AGENT_INSTRUCTIONS = """You are an expert financial analyst with deep 
 6. Use glide_path_tool for lifecycle asset allocation recommendations
 7. Always explain the methodology and formulas used
 8. Consider investor's risk tolerance and time horizon
+
+**When analyzing news and earnings impact:**
+1. Use analyze_earnings_news_impact_tool to see historical earnings vs price patterns
+2. Use get_stock_news_tool for recent news headlines and sentiment
+3. Use news_sentiment_analysis_tool for aggregate sentiment trends
+4. Use earnings_calendar_news_tool to see upcoming earnings events
+5. Determine if price moves were driven by:
+   - Earnings beat/miss (compare actual vs estimate)
+   - Forward guidance (in-line EPS but big move = guidance)
+   - News catalysts (product launches, M&A, analyst actions)
+   - Technical factors (volume, prior trend, support/resistance)
+6. Identify patterns like "sell the news" or "buy the rumor"
+7. Note when stocks rally on misses (low expectations) or fall on beats (guidance)
 
 Remember: Past performance does not guarantee future results. All analysis is for informational purposes only.
 """
@@ -213,6 +238,11 @@ class FinancialAgent:
                 monte_carlo_wealth_tool,
                 advanced_portfolio_optimization_tool,
                 glide_path_tool,
+                # News analysis tools
+                get_stock_news_tool,
+                analyze_earnings_news_impact_tool,
+                earnings_calendar_news_tool,
+                news_sentiment_analysis_tool,
             ],
             show_tool_calls=debug,
             markdown=True,

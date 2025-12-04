@@ -9,6 +9,7 @@ This package organizes tools into logical categories:
 - market_tools: Sector analysis, distortion detection, market movement explanation
 - comprehensive_tools: In-depth equity/sector analysis, earnings, correlation
 - advanced_tools: Norte/EDHEC portfolio methods (Risk Parity, Black-Litterman, etc.)
+- news_tools: News analysis, earnings impact, sentiment analysis
 """
 
 # Data retrieval tools
@@ -64,6 +65,14 @@ from fmp_analytics.agent.tools.advanced_tools import (
     glide_path_tool,
 )
 
+# News analysis tools
+from fmp_analytics.agent.tools.news_tools import (
+    get_stock_news_tool,
+    analyze_earnings_news_impact_tool,
+    earnings_calendar_news_tool,
+    news_sentiment_analysis_tool,
+)
+
 
 __all__ = [
     # Data tools
@@ -98,4 +107,9 @@ __all__ = [
     "monte_carlo_wealth_tool",
     "advanced_portfolio_optimization_tool",
     "glide_path_tool",
+    # News tools
+    "get_stock_news_tool",
+    "analyze_earnings_news_impact_tool",
+    "earnings_calendar_news_tool",
+    "news_sentiment_analysis_tool",
 ]
